@@ -1,2 +1,18 @@
+# Foldere de build
 build/
+build-*/
+out/
+bin/
+
+# Fișiere specifice editorului / IDE-ului
+.vscode/
+CMakeLists.txt.user
 *.user
+
+# Fișiere compilate
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib

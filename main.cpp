@@ -160,8 +160,9 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     
+    // --- TEME OPTIMIZATE (Fără outline-uri albastre native) ---
     QString themeDark = R"(
-        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; outline: 0; }
         QMainWindow, QGraphicsView { background-color: #1e1e1e; border: none; }
         QMenuBar { background-color: #18181b; color: #e4e4e7; border-bottom: 1px solid #2d2d2d; padding: 2px; }
         QMenuBar::item:selected { background-color: #27272a; color: #ffffff; }
@@ -170,10 +171,14 @@ int main(int argc, char *argv[]) {
         QMenu::item:selected { background-color: #0ea5e9; color: #ffffff; }
         QSplitter::handle { background-color: #2d2d2d; }
         QWidget#leftContainer { background-color: #18181b; } 
+        
         QTreeWidget, QListWidget { background-color: transparent; color: #d4d4d8; border: none; font-size: 13px; outline: none; }
-        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; }
-        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #27272a; color: #ffffff; font-weight: 600; }
-        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #27272a; color: #f4f4f5; }
+        QTreeWidget:focus, QListWidget:focus { outline: none; border: none; }
+        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; outline: none; border: none; }
+        QTreeWidget::item:focus, QListWidget::item:focus { outline: none; border: none; }
+        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #27272a; color: #ffffff; font-weight: 600; outline: none; border: none; }
+        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #27272a; color: #f4f4f5; outline: none; border: none; }
+        
         QTextEdit, QTextBrowser { background-color: #1e1e1e; color: #e4e4e7; border: none; padding: 30px 40px; font-size: 15px; line-height: 1.6; }
         QTextBrowser { border-left: 1px solid #2d2d2d; }
         QLineEdit { background-color: #000000; color: #f4f4f5; border: 1px solid #3f3f46; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 12px 12px 8px 12px; }
@@ -191,7 +196,7 @@ int main(int argc, char *argv[]) {
     )";
 
     QString themeLight = R"(
-        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; outline: 0; }
         QMainWindow, QGraphicsView { background-color: #ffffff; border: none; }
         QMenuBar { background-color: #f3f4f6; color: #111827; border-bottom: 1px solid #e5e7eb; padding: 2px; }
         QMenuBar::item:selected { background-color: #e5e7eb; color: #000000; }
@@ -200,10 +205,14 @@ int main(int argc, char *argv[]) {
         QMenu::item:selected { background-color: #0ea5e9; color: #ffffff; }
         QSplitter::handle { background-color: #e5e7eb; }
         QWidget#leftContainer { background-color: #f9fafb; } 
+        
         QTreeWidget, QListWidget { background-color: transparent; color: #374151; border: none; font-size: 13px; outline: none; }
-        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; }
-        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #e5e7eb; color: #111827; font-weight: 600; }
-        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #f3f4f6; color: #111827; }
+        QTreeWidget:focus, QListWidget:focus { outline: none; border: none; }
+        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; outline: none; border: none; }
+        QTreeWidget::item:focus, QListWidget::item:focus { outline: none; border: none; }
+        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #e5e7eb; color: #111827; font-weight: 600; outline: none; border: none; }
+        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #f3f4f6; color: #111827; outline: none; border: none; }
+        
         QTextEdit, QTextBrowser { background-color: #ffffff; color: #111827; border: none; padding: 30px 40px; font-size: 15px; line-height: 1.6; }
         QTextBrowser { border-left: 1px solid #e5e7eb; }
         QLineEdit { background-color: #ffffff; color: #111827; border: 1px solid #d1d5db; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 12px 12px 8px 12px; }
@@ -221,7 +230,7 @@ int main(int argc, char *argv[]) {
     )";
 
     QString themeSolarized = R"(
-        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; outline: 0; }
         QMainWindow, QGraphicsView { background-color: #fdf6e3; border: none; }
         QMenuBar { background-color: #eee8d5; color: #586e75; border-bottom: 1px solid #e0d8c0; padding: 2px; }
         QMenuBar::item:selected { background-color: #e0d8c0; color: #073642; }
@@ -230,10 +239,14 @@ int main(int argc, char *argv[]) {
         QMenu::item:selected { background-color: #268bd2; color: #fdf6e3; }
         QSplitter::handle { background-color: #e0d8c0; }
         QWidget#leftContainer { background-color: #eee8d5; } 
+        
         QTreeWidget, QListWidget { background-color: transparent; color: #657b83; border: none; font-size: 13px; outline: none; }
-        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; }
-        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #e0d8c0; color: #073642; font-weight: 600; }
-        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #e6dfca; color: #586e75; }
+        QTreeWidget:focus, QListWidget:focus { outline: none; border: none; }
+        QTreeWidget::item, QListWidget::item { padding: 6px 8px; border-radius: 6px; margin: 2px 8px; outline: none; border: none; }
+        QTreeWidget::item:focus, QListWidget::item:focus { outline: none; border: none; }
+        QTreeWidget::item:selected, QListWidget::item:selected { background-color: #e0d8c0; color: #073642; font-weight: 600; outline: none; border: none; }
+        QTreeWidget::item:hover:!selected, QListWidget::item:hover:!selected { background-color: #e6dfca; color: #586e75; outline: none; border: none; }
+        
         QTextEdit, QTextBrowser { background-color: #fdf6e3; color: #657b83; border: none; padding: 30px 40px; font-size: 15px; line-height: 1.6; }
         QTextBrowser { border-left: 1px solid #e0d8c0; }
         QLineEdit { background-color: #fdf6e3; color: #586e75; border: 1px solid #d3cbb5; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 12px 12px 8px 12px; }
@@ -253,7 +266,7 @@ int main(int argc, char *argv[]) {
     app.setStyleSheet(themeDark); 
 
     QMainWindow window;
-    window.setWindowTitle("MemCore - Pro Edition");
+    window.setWindowTitle("Orbit - Pro Edition");
     window.resize(1300, 800); 
 
     QMenuBar *menuBar = new QMenuBar(&window);
@@ -290,7 +303,7 @@ int main(int argc, char *argv[]) {
 
     QMenu *helpMenu = menuBar->addMenu("&Help");
     QAction *actionCheatsheet = helpMenu->addAction("Markdown Cheatsheet");
-    QAction *actionAbout = helpMenu->addAction("About MemCore");
+    QAction *actionAbout = helpMenu->addAction("About Orbit");
 
     QSplitter *mainSplitter = new QSplitter(Qt::Horizontal, &window);
     mainSplitter->setHandleWidth(1); 
@@ -309,6 +322,12 @@ int main(int argc, char *argv[]) {
     
     QTreeWidget *treeWidget = new QTreeWidget(leftSplitter);
     treeWidget->setHeaderHidden(true); 
+
+    // --- NOU: Adăugarea funcționalității DELETE din tastatură pentru listă ---
+    QAction *treeDeleteShortcut = new QAction(treeWidget);
+    treeDeleteShortcut->setShortcuts({QKeySequence::Delete, QKeySequence("Backspace")});
+    treeDeleteShortcut->setShortcutContext(Qt::WidgetShortcut);
+    treeWidget->addAction(treeDeleteShortcut);
 
     QWidget *backlinksContainer = new QWidget(leftSplitter);
     QVBoxLayout *backlinksLayout = new QVBoxLayout(backlinksContainer);
@@ -413,7 +432,6 @@ int main(int argc, char *argv[]) {
     });
 
     auto reloadSystem = [&]() {
-        // --- PREZERVARE STARE CURENTĂ ---
         QString selectedFileName = "";
         if (treeWidget->currentItem() && treeWidget->currentItem()->parent() == nullptr) {
             selectedFileName = treeWidget->currentItem()->text(0);
@@ -474,13 +492,11 @@ int main(int argc, char *argv[]) {
         }
         treeWidget->expandAll();
 
-        // --- RESTAURARE STARE ---
         if (!selectedFileName.isEmpty()) {
             QList<QTreeWidgetItem*> items = treeWidget->findItems(selectedFileName, Qt::MatchExactly, 0);
             if (!items.isEmpty()) {
                 treeWidget->setCurrentItem(items.first());
                 
-                // Actualizare tăcută a backlink-urilor
                 backlinksList->clear();
                 std::string targetLink = selectedFileName.toStdString();
                 if (targetLink.length() >= 3 && targetLink.substr(targetLink.length() - 3) == ".md") {
@@ -618,6 +634,9 @@ int main(int argc, char *argv[]) {
         }
     });
 
+    // --- Conectăm tasta Delete la acțiunea de Delete ---
+    QObject::connect(treeDeleteShortcut, &QAction::triggered, actionDelete, &QAction::trigger);
+
     QObject::connect(actionOpenVault, &QAction::triggered, [&]() {
         QDesktopServices::openUrl(QUrl::fromLocalFile(QDir(QString::fromStdString(vaultPath)).absolutePath()));
     });
@@ -663,16 +682,16 @@ int main(int argc, char *argv[]) {
     });
 
     QObject::connect(actionAbout, &QAction::triggered, [&]() {
-        QMessageBox::about(nullptr, "About MemCore", 
+        QMessageBox::about(nullptr, "About Orbit", 
             "<div style='text-align: center; font-family: -apple-system, sans-serif;'>"
-            "<h2 style='margin-bottom: 5px; font-weight: bold;'>MemCore</h2>"
+            "<h2 style='margin-bottom: 5px; font-weight: bold;'>Orbit</h2>"
             "<p style='color: gray; margin-top: 0px; font-size: 13px;'>Version 1.0 (Pro Edition)</p>"
             "<p style='margin: 15px 0px; line-height: 1.4;'>"
             "A meticulously crafted Second Brain.<br>"
             "Focus on your thoughts, we handle the connections."
             "</p>"
             "<p style='font-size: 11px; color: #888888; margin-top: 20px;'>"
-            "© 2026 MemCore Technologies. All rights reserved."
+            "© 2026 Orbit Technologies. All rights reserved."
             "</p>"
             "</div>"
         );
@@ -707,16 +726,12 @@ int main(int argc, char *argv[]) {
     QObject::connect(actionRefresh, &QAction::triggered, reloadSystem);
     QObject::connect(btnRefreshSmall, &QPushButton::clicked, reloadSystem);
 
-    // --- NOU: MECANISME DE AUTO-UPDATE PENTRU GRAF ---
-
-    // 1. Refresh automat la schimbarea pe tabul de Graf
     QObject::connect(rightTabs, &QTabWidget::currentChanged, [&](int index) {
-        if (index == 1) { // Index 1 este "Graph Map"
+        if (index == 1) { 
             reloadSystem();
         }
     });
 
-    // 2. Debounce Timer (actualizează automat la 1.5 secunde după ce ai terminat de scris)
     std::shared_ptr<QTimer> autoRefreshTimer = std::make_shared<QTimer>();
     autoRefreshTimer->setSingleShot(true);
     autoRefreshTimer->setInterval(1500); 
@@ -728,7 +743,6 @@ int main(int argc, char *argv[]) {
             if (file.is_open()) file << textEdit->toPlainText().toStdString();
             markdownPreview->setMarkdown(textEdit->toPlainText());
             
-            // Repornim cronometrul la fiecare literă tastată
             autoRefreshTimer->start(); 
         }
     });
