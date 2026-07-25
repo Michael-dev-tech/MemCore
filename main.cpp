@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QWidget>
 #include <QTabWidget>
+#include <QTabBar>
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsEllipseItem>
@@ -43,6 +44,7 @@
 #include <QDialog>
 #include <QShortcut>
 #include <QStatusBar>
+#include <QSettings> // --- NOU: Memorie pentru setări (Dark/Light mode) ---
 #include <set>
 #include <filesystem>
 #include <sstream>
@@ -240,7 +242,6 @@ protected:
         QTextCharFormat tagFormat; tagFormat.setForeground(QColor("#0ea5e9")); 
         QTextCharFormat headerFormat; headerFormat.setFontWeight(QFont::Bold);
         QTextCharFormat yamlFormat; yamlFormat.setForeground(QColor("#787774")); yamlFormat.setFontItalic(true);
-
         QTextCharFormat todoFormat; todoFormat.setForeground(QColor("#eab308")); todoFormat.setFontWeight(QFont::Bold);
         QTextCharFormat doneFormat; doneFormat.setForeground(QColor("#22c55e")); doneFormat.setFontStrikeOut(true);
 
@@ -308,8 +309,10 @@ int main(int argc, char *argv[]) {
         QTreeWidget::item:hover:!selected { background-color: rgba(255, 255, 255, 0.03); color: #e0e0e0; }
         QTextEdit, QTextBrowser { background-color: #191919; color: #d4d4d4; border: none; padding: 40px 80px; font-size: 16px; line-height: 1.7; }
         QTextBrowser { border-left: 1px solid #2d2d2d; }
-        QLineEdit { background-color: rgba(255, 255, 255, 0.055); color: #d4d4d4; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px; }
+        QLineEdit { background-color: rgba(255, 255, 255, 0.055); color: #d4d4d4; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px 4px 12px 12px; }
         QLineEdit:focus { border: 1px solid #4b4b4b; background-color: #202020; }
+        QPushButton#btnNewNote { background-color: #8b5cf6; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 18px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
+        QPushButton#btnNewNote:hover { background-color: #7c3aed; }
         QTabWidget::pane { border: none; background-color: #191919; border-top: 1px solid #2d2d2d; }
         QTabBar::tab { background-color: transparent; color: #9b9b9b; padding: 10px 20px; font-weight: 600; border-bottom: 2px solid transparent; }
         QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #d4d4d4; }
@@ -336,8 +339,10 @@ int main(int argc, char *argv[]) {
         QTreeWidget::item:hover:!selected { background-color: rgba(55, 53, 47, 0.04); color: #37352f; }
         QTextEdit, QTextBrowser { background-color: #ffffff; color: #37352f; border: none; padding: 40px 80px; font-size: 16px; line-height: 1.7; }
         QTextBrowser { border-left: 1px solid #e5e5e5; }
-        QLineEdit { background-color: rgba(55, 53, 47, 0.04); color: #37352f; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px; }
+        QLineEdit { background-color: rgba(55, 53, 47, 0.04); color: #37352f; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px 4px 12px 12px; }
         QLineEdit:focus { border: 1px solid #e5e5e5; background-color: #ffffff; }
+        QPushButton#btnNewNote { background-color: #8b5cf6; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 18px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
+        QPushButton#btnNewNote:hover { background-color: #7c3aed; }
         QTabWidget::pane { border: none; background-color: #ffffff; border-top: 1px solid #e5e5e5; }
         QTabBar::tab { background-color: transparent; color: #9b9a97; padding: 10px 20px; font-weight: 600; border-bottom: 2px solid transparent; }
         QTabBar::tab:selected { color: #37352f; border-bottom: 2px solid #37352f; }
@@ -348,14 +353,12 @@ int main(int argc, char *argv[]) {
         QStatusBar { background: transparent; color: #9b9a97; font-size: 12px; border-top: 1px solid #e5e5e5; }
     )";
 
-    app.setStyleSheet(themeLight); 
-
     QMainWindow window;
-    window.setWindowTitle("Orbit - Pro Edition");
+    window.setWindowTitle("Orbit - Enterprise Edition");
     window.resize(1300, 800); 
 
     QStatusBar *statusBar = window.statusBar();
-    QLabel *statsLabel = new QLabel("0 Words  •  0 Characters  •  0 min read", &window);
+    QLabel *statsLabel = new QLabel("Graph View Active", &window);
     statsLabel->setStyleSheet("padding-right: 20px;");
     statusBar->addPermanentWidget(statsLabel);
 
@@ -376,16 +379,11 @@ int main(int argc, char *argv[]) {
     QAction *actionDelete = fileMenu->addAction("Delete Note");
     fileMenu->addSeparator();
     
-    QAction *actionOpenVault = fileMenu->addAction("Open Vault Folder...");
-    QAction *actionExportPDF = fileMenu->addAction("Export as PDF...");
+    QAction *actionExportPDF = fileMenu->addAction("Export active tab as PDF...");
     fileMenu->addSeparator();
     
     QAction *actionExit = fileMenu->addAction("Exit");
     actionExit->setShortcut(QKeySequence("Ctrl+Q"));
-
-    QMenu *editMenu = menuBar->addMenu("&Edit");
-    QAction *actionInsertDate = editMenu->addAction("Insert Date & Time");
-    QAction *actionClearEditor = editMenu->addAction("Clear Editor");
 
     QMenu *viewMenu = menuBar->addMenu("&View");
     QAction *actionPalette = viewMenu->addAction("Command Palette");
@@ -411,9 +409,23 @@ int main(int argc, char *argv[]) {
     QVBoxLayout *leftLayout = new QVBoxLayout(leftContainer);
     leftLayout->setContentsMargins(0, 0, 0, 0);
 
-    QLineEdit *searchBox = new QLineEdit(leftContainer);
+    QWidget *searchContainer = new QWidget(leftContainer);
+    QHBoxLayout *searchLayout = new QHBoxLayout(searchContainer);
+    searchLayout->setContentsMargins(0, 0, 0, 0);
+    searchLayout->setSpacing(0);
+
+    QLineEdit *searchBox = new QLineEdit(searchContainer);
     searchBox->setPlaceholderText("Global Search...");
-    leftLayout->addWidget(searchBox);
+
+    QPushButton *btnNewNote = new QPushButton("+", searchContainer);
+    btnNewNote->setObjectName("btnNewNote");
+    btnNewNote->setCursor(Qt::PointingHandCursor);
+    btnNewNote->setToolTip("Create New Note (Ctrl+N)");
+    QObject::connect(btnNewNote, &QPushButton::clicked, actionNew, &QAction::trigger);
+
+    searchLayout->addWidget(searchBox);
+    searchLayout->addWidget(btnNewNote);
+    leftLayout->addWidget(searchContainer);
 
     QSplitter *leftSplitter = new QSplitter(Qt::Vertical, leftContainer);
     leftSplitter->setHandleWidth(4);
@@ -441,65 +453,25 @@ int main(int argc, char *argv[]) {
     leftLayout->addWidget(leftSplitter);
 
     QTabWidget *rightTabs = new QTabWidget(mainSplitter);
+    rightTabs->setTabsClosable(true); 
     QPushButton *btnFocus = new QPushButton("Toggle Sidebar", rightTabs);
     btnFocus->setObjectName("btnFocus");
     rightTabs->setCornerWidget(btnFocus, Qt::TopRightCorner);
 
-    QSplitter *textSplitter = new QSplitter(Qt::Horizontal, rightTabs);
-    textSplitter->setHandleWidth(4);
-    
-    MarkdownEditor *textEdit = new MarkdownEditor(textSplitter);
-    textEdit->vaultPath = vaultPath;
-    textEdit->setPlaceholderText("Type your thoughts...");
-    new MarkdownHighlighter(textEdit->document());
-    
-    QTextBrowser *markdownPreview = new QTextBrowser(textSplitter);
-    markdownPreview->setOpenExternalLinks(true); 
-    markdownPreview->document()->setBaseUrl(QUrl::fromLocalFile(QDir(QString::fromStdString(vaultPath)).absolutePath() + "/"));
-    
-    QString previewCSS = R"(
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #37352f; line-height: 1.6; }
-        h1, h2, h3 { color: #111111; margin-top: 1.2em; margin-bottom: 0.5em; }
-        h1 { border-bottom: 1px solid #eaeaea; padding-bottom: 0.2em; }
-        img { max-width: 100%; border-radius: 6px; } 
-        blockquote { border-left: 4px solid #e5e5e5; margin-left: 0; padding-left: 1em; color: #787774; }
-        code { background-color: rgba(55, 53, 47, 0.09); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; }
-        pre code { display: block; padding: 1em; background-color: #f7f6f3; overflow-x: auto; }
-        hr { border: 0; border-top: 1px solid #e5e5e5; margin: 2em 0; }
-    )";
-    markdownPreview->document()->setDefaultStyleSheet(previewCSS);
-
-    QScrollBar *leftScroll = textEdit->verticalScrollBar();
-    QScrollBar *rightScroll = markdownPreview->verticalScrollBar();
-    QPropertyAnimation *smoothScrollAnim = new QPropertyAnimation(rightScroll, "value", &window);
-    smoothScrollAnim->setDuration(150); smoothScrollAnim->setEasingCurve(QEasingCurve::OutCubic); 
-    QObject::connect(leftScroll, &QScrollBar::valueChanged, [leftScroll, rightScroll, smoothScrollAnim](int value) {
-        if (leftScroll->maximum() > 0) {
-            double ratio = (double)value / leftScroll->maximum();
-            int targetValue = ratio * rightScroll->maximum();
-            if (smoothScrollAnim->state() == QAbstractAnimation::Running) smoothScrollAnim->stop();
-            smoothScrollAnim->setStartValue(rightScroll->value()); smoothScrollAnim->setEndValue(targetValue); smoothScrollAnim->start();
-        }
-    });
-
-    textSplitter->setSizes(QList<int>() << 500 << 500); 
-    rightTabs->addTab(textSplitter, "Document");
-
     QGraphicsScene *graphScene = new QGraphicsScene();
     QGraphicsView *graphView = new QGraphicsView(graphScene);
     graphView->setRenderHint(QPainter::Antialiasing); graphView->setDragMode(QGraphicsView::ScrollHandDrag); 
+    
     rightTabs->addTab(graphView, "Graph Map");
+    rightTabs->tabBar()->setTabButton(0, QTabBar::RightSide, nullptr); 
+    rightTabs->tabBar()->setTabButton(0, QTabBar::LeftSide, nullptr);
 
     mainSplitter->setSizes(QList<int>() << 280 << 1020); 
     window.setCentralWidget(mainSplitter);
 
-    auto currentFile = std::make_shared<std::string>("");
-    auto isProgrammaticChange = std::make_shared<bool>(false);
     auto activeNodes = std::make_shared<std::vector<Node*>>();
     auto isPhysicsEnabled = std::make_shared<bool>(true);
-    
     auto currentGraphTextColor = std::make_shared<QString>("#37352f"); 
-    
     auto globalGraph = std::make_shared<std::unordered_map<std::string, std::vector<std::string>>>();
     auto globalTags = std::make_shared<std::unordered_map<std::string, std::vector<std::string>>>(); 
     auto globalFileContents = std::make_shared<std::unordered_map<std::string, QString>>(); 
@@ -509,8 +481,9 @@ int main(int argc, char *argv[]) {
         return md.replace(yamlRegex, ""); 
     };
 
-    auto updateStats = [statsLabel, textEdit]() {
-        QString text = textEdit->toPlainText();
+    auto updateStats = [statsLabel](QTextEdit* editor) {
+        if (!editor) { statsLabel->setText("Graph View Active"); return; }
+        QString text = editor->toPlainText();
         int chars = text.length();
         int words = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts).count();
         if (text.trimmed().isEmpty()) words = 0;
@@ -518,6 +491,84 @@ int main(int argc, char *argv[]) {
         if (words == 0) readingTime = 0;
         statsLabel->setText(QString("%1 Words  •  %2 Characters  •  %3 min read").arg(words).arg(chars).arg(readingTime));
     };
+
+    auto openNoteInTab = [&](const std::string& fullPath, const QString& tabName) {
+        for (int i = 1; i < rightTabs->count(); ++i) {
+            if (rightTabs->widget(i)->property("file_path").toString().toStdString() == fullPath) {
+                rightTabs->setCurrentIndex(i);
+                return;
+            }
+        }
+
+        QFile file(QString::fromStdString(fullPath));
+        if (!file.open(QIODevice::ReadOnly)) return;
+        QByteArray raw = file.readAll();
+        QString text = QString::fromUtf8(decryptAES(raw, global_aes_key));
+
+        QSplitter *textSplitter = new QSplitter(Qt::Horizontal, rightTabs);
+        textSplitter->setHandleWidth(4);
+        textSplitter->setProperty("file_path", QString::fromStdString(fullPath)); 
+
+        MarkdownEditor *textEdit = new MarkdownEditor(textSplitter);
+        textEdit->vaultPath = vaultPath;
+        new MarkdownHighlighter(textEdit->document());
+        textEdit->setPlainText(text);
+
+        QTextBrowser *markdownPreview = new QTextBrowser(textSplitter);
+        markdownPreview->setOpenExternalLinks(true); 
+        markdownPreview->document()->setBaseUrl(QUrl::fromLocalFile(QDir(QString::fromStdString(vaultPath)).absolutePath() + "/"));
+        
+        QString previewCSS = (*currentGraphTextColor == "#d4d4d4") ? 
+            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #d4d4d4; line-height: 1.6; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #3f3f46; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #3f3f46; margin-left: 0; padding-left: 1em; color: #a1a1aa; } code { background-color: rgba(255, 255, 255, 0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #202020; overflow-x: auto; } hr { border: 0; border-top: 1px solid #3f3f46; margin: 2em 0; } )" :
+            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #37352f; line-height: 1.6; } h1, h2, h3 { color: #111111; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #eaeaea; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #e5e5e5; margin-left: 0; padding-left: 1em; color: #787774; } code { background-color: rgba(55, 53, 47, 0.09); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #f7f6f3; overflow-x: auto; } hr { border: 0; border-top: 1px solid #e5e5e5; margin: 2em 0; } )";
+        
+        markdownPreview->document()->setDefaultStyleSheet(previewCSS);
+        markdownPreview->setMarkdown(formatPreviewMarkdown(text));
+
+        QScrollBar *leftScroll = textEdit->verticalScrollBar();
+        QScrollBar *rightScroll = markdownPreview->verticalScrollBar();
+        QPropertyAnimation *smoothScrollAnim = new QPropertyAnimation(rightScroll, "value", textSplitter);
+        smoothScrollAnim->setDuration(150); smoothScrollAnim->setEasingCurve(QEasingCurve::OutCubic); 
+        QObject::connect(leftScroll, &QScrollBar::valueChanged, [leftScroll, rightScroll, smoothScrollAnim](int value) {
+            if (leftScroll->maximum() > 0) {
+                double ratio = (double)value / leftScroll->maximum();
+                int targetValue = ratio * rightScroll->maximum();
+                if (smoothScrollAnim->state() == QAbstractAnimation::Running) smoothScrollAnim->stop();
+                smoothScrollAnim->setStartValue(rightScroll->value()); smoothScrollAnim->setEndValue(targetValue); smoothScrollAnim->start();
+            }
+        });
+
+        textSplitter->setSizes(QList<int>() << 500 << 500); 
+        int newIndex = rightTabs->addTab(textSplitter, tabName);
+        rightTabs->setCurrentIndex(newIndex);
+
+        auto isProgrammaticChange = std::make_shared<bool>(false);
+        QObject::connect(textEdit, &QTextEdit::textChanged, [=, &global_aes_key]() {
+            if (!*isProgrammaticChange) {
+                QSaveFile sFile(QString::fromStdString(fullPath));
+                if (sFile.open(QIODevice::WriteOnly)) {
+                    QByteArray out = encryptAES(textEdit->toPlainText().toUtf8(), global_aes_key); 
+                    sFile.write(out);
+                    sFile.commit(); 
+                }
+                markdownPreview->setMarkdown(formatPreviewMarkdown(textEdit->toPlainText()));
+                if (rightTabs->currentWidget() == textSplitter) updateStats(textEdit);
+            }
+        });
+    };
+
+    QObject::connect(rightTabs, &QTabWidget::tabCloseRequested, [&](int index) {
+        if (index == 0) return; 
+        QWidget* widget = rightTabs->widget(index);
+        rightTabs->removeTab(index);
+        widget->deleteLater();
+    });
+
+    QObject::connect(rightTabs, &QTabWidget::currentChanged, [&](int index) {
+        if (index == 0) { updateStats(nullptr); return; }
+        QTextEdit* editor = rightTabs->widget(index)->findChild<QTextEdit*>();
+        updateStats(editor);
+    });
 
     std::shared_ptr<QTimer> physicsTimer = std::make_shared<QTimer>();
     QObject::connect(physicsTimer.get(), &QTimer::timeout, [activeNodes, isPhysicsEnabled]() {
@@ -557,10 +608,6 @@ int main(int argc, char *argv[]) {
     });
 
     auto reloadSystem = [&]() {
-        QString selectedFileName = "";
-        if (treeWidget->currentItem() && treeWidget->currentItem()->parent() == nullptr) 
-            selectedFileName = treeWidget->currentItem()->text(0);
-
         activeNodes->clear(); treeWidget->clear(); graphScene->clear();
         globalGraph->clear(); globalTags->clear(); globalFileContents->clear();
         std::unordered_map<std::string, Node*> nodesMap;
@@ -675,24 +722,28 @@ int main(int argc, char *argv[]) {
     
     reloadSystem();
 
-    QObject::connect(tagsList, &QListWidget::itemClicked, [&](QListWidgetItem *item) {
-        searchBox->setText(item->text()); 
-    });
+    auto applyThemeToAllTabs = [&](const QString& css) {
+        for (int i = 1; i < rightTabs->count(); ++i) {
+            QTextBrowser* preview = rightTabs->widget(i)->findChild<QTextBrowser*>();
+            QTextEdit* editor = rightTabs->widget(i)->findChild<QTextEdit*>();
+            if (preview && editor) {
+                preview->document()->setDefaultStyleSheet(css);
+                preview->setMarkdown(formatPreviewMarkdown(editor->toPlainText()));
+            }
+        }
+    };
 
     QObject::connect(actionThemeDark, &QAction::triggered, [&]() {
         *currentGraphTextColor = "#d4d4d4"; 
         app.setStyleSheet(themeDark); 
         for (Node* n : *activeNodes) n->setTextColor(QColor(*currentGraphTextColor)); 
         
-        QString darkPreviewCSS = R"(
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #d4d4d4; line-height: 1.6; }
-            h1, h2, h3 { color: #ffffff; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #3f3f46; padding-bottom: 0.2em; }
-            img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #3f3f46; margin-left: 0; padding-left: 1em; color: #a1a1aa; }
-            code { background-color: rgba(255, 255, 255, 0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; }
-            pre code { display: block; padding: 1em; background-color: #202020; overflow-x: auto; } hr { border: 0; border-top: 1px solid #3f3f46; margin: 2em 0; }
-        )";
-        markdownPreview->document()->setDefaultStyleSheet(darkPreviewCSS);
-        markdownPreview->setMarkdown(formatPreviewMarkdown(textEdit->toPlainText()));
+        QString darkPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #d4d4d4; line-height: 1.6; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #3f3f46; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #3f3f46; margin-left: 0; padding-left: 1em; color: #a1a1aa; } code { background-color: rgba(255, 255, 255, 0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #202020; overflow-x: auto; } hr { border: 0; border-top: 1px solid #3f3f46; margin: 2em 0; } )";
+        applyThemeToAllTabs(darkPreviewCSS);
+
+        // Salvăm setarea de Dark Mode
+        QSettings settings("Orbit", "EnterpriseEdition");
+        settings.setValue("theme", "dark");
     });
     
     QObject::connect(actionThemeLight, &QAction::triggered, [&]() {
@@ -700,17 +751,17 @@ int main(int argc, char *argv[]) {
         app.setStyleSheet(themeLight); 
         for (Node* n : *activeNodes) n->setTextColor(QColor(*currentGraphTextColor)); 
         
-        markdownPreview->document()->setDefaultStyleSheet(previewCSS);
-        markdownPreview->setMarkdown(formatPreviewMarkdown(textEdit->toPlainText()));
+        QString lightPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #37352f; line-height: 1.6; } h1, h2, h3 { color: #111111; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #eaeaea; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #e5e5e5; margin-left: 0; padding-left: 1em; color: #787774; } code { background-color: rgba(55, 53, 47, 0.09); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #f7f6f3; overflow-x: auto; } hr { border: 0; border-top: 1px solid #e5e5e5; margin: 2em 0; } )";
+        applyThemeToAllTabs(lightPreviewCSS);
+
+        // Salvăm setarea de Light Mode
+        QSettings settings("Orbit", "EnterpriseEdition");
+        settings.setValue("theme", "light");
     });
 
-    // --- REPARAT: Logica de Delete și Rename a fost reintrodusă ---
     QObject::connect(actionRename, &QAction::triggered, [&]() {
         QTreeWidgetItem *item = treeWidget->currentItem();
-        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) {
-            QMessageBox::warning(nullptr, "Select Note", "Please select a valid note from the left sidebar to rename.");
-            return;
-        }
+        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) return;
         QString relPath = item->data(0, Qt::UserRole).toString();
         std::string oldName = std::filesystem::path(relPath.toStdString()).filename().string();
         std::string nameWithoutExt = oldName.length() >= 3 ? oldName.substr(0, oldName.length() - 3) : oldName;
@@ -720,46 +771,49 @@ int main(int argc, char *argv[]) {
         if (ok && !newName.isEmpty()) {
             std::string oldFullPath = vaultPath + "/" + relPath.toStdString();
             std::string newRelPath = std::filesystem::path(relPath.toStdString()).parent_path().string();
-            if(newRelPath != "" && newRelPath != ".") newRelPath += "/";
-            else newRelPath = "";
+            if(newRelPath != "" && newRelPath != ".") newRelPath += "/"; else newRelPath = "";
             newRelPath += newName.toStdString() + ".md";
-            
             std::string newFullPath = vaultPath + "/" + newRelPath;
+            
             fs::rename(oldFullPath, newFullPath);
-            if (*currentFile == oldFullPath) *currentFile = newFullPath;
+            
+            for(int i = 1; i < rightTabs->count(); ++i) {
+                if (rightTabs->widget(i)->property("file_path").toString().toStdString() == oldFullPath) {
+                    rightTabs->widget(i)->setProperty("file_path", QString::fromStdString(newFullPath));
+                    rightTabs->setTabText(i, newName + ".md");
+                }
+            }
             reloadSystem();
         }
     });
 
     QObject::connect(actionDelete, &QAction::triggered, [&]() {
         QTreeWidgetItem *item = treeWidget->currentItem();
-        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) {
-            QMessageBox::warning(nullptr, "Select Note", "Please select a valid note from the left sidebar to delete.");
-            return;
-        }
+        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) return;
         QString relPath = item->data(0, Qt::UserRole).toString();
         auto reply = QMessageBox::question(nullptr, "Delete Note", "Are you sure you want to permanently delete '" + item->text(0) + "'?", QMessageBox::Yes | QMessageBox::No);
         if (reply == QMessageBox::Yes) {
             std::string fullPath = vaultPath + "/" + relPath.toStdString();
             fs::remove(fullPath);
-            if (*currentFile == fullPath) {
-                *currentFile = "";
-                textEdit->clear();
-                markdownPreview->clear();
-                updateStats();
+            
+            for(int i = 1; i < rightTabs->count(); ++i) {
+                if (rightTabs->widget(i)->property("file_path").toString().toStdString() == fullPath) {
+                    QWidget* w = rightTabs->widget(i);
+                    rightTabs->removeTab(i);
+                    w->deleteLater();
+                    break;
+                }
             }
             reloadSystem();
         }
     });
 
-    // --- NOU: Scurtătură tastatură direct în TreeWidget (Delete/Backspace) ---
     QAction *treeDeleteShortcut = new QAction(treeWidget);
     treeDeleteShortcut->setShortcuts({QKeySequence::Delete, QKeySequence("Backspace")});
     treeDeleteShortcut->setShortcutContext(Qt::WidgetShortcut);
     treeWidget->addAction(treeDeleteShortcut);
     QObject::connect(treeDeleteShortcut, &QAction::triggered, actionDelete, &QAction::trigger);
 
-    // --- NOU: Meniu Contextual la Click-Dreapta pe notițe ---
     treeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(treeWidget, &QTreeWidget::customContextMenuRequested, [&](const QPoint &pos) {
         QTreeWidgetItem *item = treeWidget->itemAt(pos);
@@ -771,17 +825,18 @@ int main(int argc, char *argv[]) {
             contextMenu.exec(treeWidget->viewport()->mapToGlobal(pos));
         }
     });
-    // ----------------------------------------------------------------
 
     QObject::connect(actionNew, &QAction::triggered, [&]() {
         QString text = QInputDialog::getText(nullptr, "New Note", "Name:", QLineEdit::Normal, "");
         if (!text.isEmpty()) { 
-            QFile file(QString::fromStdString(vaultPath) + "/" + text + ".md");
+            std::string fullPath = vaultPath + "/" + text.toStdString() + ".md";
+            QFile file(QString::fromStdString(fullPath));
             if (file.open(QIODevice::WriteOnly)) {
                 QByteArray out = encryptAES(QByteArray(""), global_aes_key);
                 file.write(out);
             }
             reloadSystem(); 
+            openNoteInTab(fullPath, text + ".md");
         }
     });
 
@@ -795,20 +850,28 @@ int main(int argc, char *argv[]) {
                 QByteArray out = encryptAES(initialText.toUtf8(), global_aes_key);
                 file.write(out);
             }
+            reloadSystem();
         }
-        reloadSystem();
-        QList<QTreeWidgetItem*> items = treeWidget->findItems(today + ".md", Qt::MatchRecursive, 0);
-        if (!items.isEmpty()) {
-            treeWidget->setCurrentItem(items.first()); emit treeWidget->itemClicked(items.first(), 0);
-        }
+        openNoteInTab(fullPath.toStdString(), today + ".md");
     });
 
     QObject::connect(actionExportPDF, &QAction::triggered, [&]() {
+        if (rightTabs->currentIndex() == 0) {
+            QMessageBox::warning(nullptr, "Export PDF", "You cannot export the Graph Map to PDF. Please select a note tab.");
+            return;
+        }
+        QTextBrowser* preview = rightTabs->currentWidget()->findChild<QTextBrowser*>();
+        if (!preview) return;
+
         QString fileName = QFileDialog::getSaveFileName(nullptr, "Export PDF", "", "PDF Files (*.pdf)");
         if (!fileName.isEmpty()) {
             QPdfWriter pdfWriter(fileName); pdfWriter.setResolution(300);
-            markdownPreview->document()->print(&pdfWriter);
+            preview->document()->print(&pdfWriter);
         }
+    });
+
+    QObject::connect(tagsList, &QListWidget::itemClicked, [&](QListWidgetItem *item) {
+        searchBox->setText(item->text()); 
     });
 
     CommandPalette *palette = new CommandPalette(&window);
@@ -843,19 +906,6 @@ int main(int argc, char *argv[]) {
         }
     });
 
-    QObject::connect(textEdit, &QTextEdit::textChanged, [&]() {
-        updateStats(); 
-        if (!*isProgrammaticChange && !currentFile->empty()) {
-            QSaveFile file(QString::fromStdString(*currentFile));
-            if (file.open(QIODevice::WriteOnly)) {
-                QByteArray out = encryptAES(textEdit->toPlainText().toUtf8(), global_aes_key); 
-                file.write(out);
-                file.commit(); 
-            }
-            markdownPreview->setMarkdown(formatPreviewMarkdown(textEdit->toPlainText()));
-        }
-    });
-
     QObject::connect(treeWidget, &QTreeWidget::itemClicked, [&](QTreeWidgetItem *item, int column) {
         if (item->text(0).startsWith("📁 ")) return;
         if (item->parent() != nullptr && !item->data(0, Qt::UserRole).isValid()) return;
@@ -863,20 +913,59 @@ int main(int argc, char *argv[]) {
         QString relPath = item->data(0, Qt::UserRole).toString();
         if (relPath.isEmpty()) relPath = item->text(0);
         std::string fullPath = vaultPath + "/" + relPath.toStdString();
+        QString fileName = item->text(0);
         
-        QFile file(QString::fromStdString(fullPath));
-        if (file.open(QIODevice::ReadOnly)) {
-            QByteArray raw = file.readAll();
-            *isProgrammaticChange = true;
-            QString text = QString::fromUtf8(decryptAES(raw, global_aes_key));
-            
-            textEdit->setPlainText(text);
-            markdownPreview->setMarkdown(formatPreviewMarkdown(text)); 
-            updateStats();
-            *currentFile = fullPath;
-            *isProgrammaticChange = false; rightTabs->setCurrentIndex(0);
-        }
+        openNoteInTab(fullPath, fileName);
     });
+
+    bool hasNotes = false;
+    QTreeWidgetItemIterator it(treeWidget);
+    while (*it) {
+        if (!(*it)->data(0, Qt::UserRole).toString().isEmpty()) {
+            hasNotes = true;
+            QString relPath = (*it)->data(0, Qt::UserRole).toString();
+            std::string fullPath = vaultPath + "/" + relPath.toStdString();
+            openNoteInTab(fullPath, (*it)->text(0));
+            break; 
+        }
+        ++it;
+    }
+
+    // --- NOU: Notion-Style Welcome Page ---
+    if (!hasNotes) {
+        std::string welcomeFullPath = vaultPath + "/Welcome.md";
+        QFile file(QString::fromStdString(welcomeFullPath));
+        if (file.open(QIODevice::WriteOnly)) {
+            QString welcomeText = 
+                "# ✨ Welcome to Orbit\n\n"
+                "Orbit is your personal, secure second brain. It helps you capture thoughts, connect ideas, and stay productive.\n\n"
+                "---\n\n"
+                "### 🚀 Getting Started\n"
+                "- [ ] **Write something:** Click anywhere and start typing.\n"
+                "- [ ] **Create a new note:** Click the `+` button in the sidebar or press `Ctrl+N`.\n"
+                "- [ ] **Connect thoughts:** Type `[[` to link to another note.\n"
+                "- [ ] **Organize:** Use `#tags` to categorize your ideas.\n\n"
+                "### 💡 Tips & Tricks\n"
+                "> \"Your mind is for having ideas, not holding them.\" - David Allen\n\n"
+                "* Press `Ctrl+P` to open the Command Palette.\n"
+                "* Explore the **Graph Map** tab to see how your notes connect.\n"
+                "* Your data is **100% locally encrypted** and secure.\n";
+
+            QByteArray out = encryptAES(welcomeText.toUtf8(), global_aes_key);
+            file.write(out);
+        }
+        reloadSystem();
+        openNoteInTab(welcomeFullPath, "Welcome.md");
+    }
+
+    // --- NOU: Aplicăm ultima temă salvată ---
+    QSettings settings("Orbit", "EnterpriseEdition");
+    QString savedTheme = settings.value("theme", "light").toString();
+    if (savedTheme == "dark") {
+        actionThemeDark->trigger();
+    } else {
+        actionThemeLight->trigger();
+    }
 
     QObject::connect(actionExit, &QAction::triggered, &app, &QApplication::quit);
     window.show();
