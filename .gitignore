@@ -16,3 +16,8 @@ CMakeLists.txt.user
 *.dll
 *.so
 *.dylib
+
+
+.orbit_key
+VaultTest/
+build/

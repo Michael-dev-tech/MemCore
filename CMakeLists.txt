@@ -7,7 +7,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 COMPONENTS Widgets REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_executable(MemCore main.cpp)
 
-target_link_libraries(MemCore PRIVATE Qt6::Widgets)
+# Am adăugat librăriile de cripto OpenSSL aici:
+target_link_libraries(MemCore PRIVATE Qt6::Widgets OpenSSL::SSL OpenSSL::Crypto)
