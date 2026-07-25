@@ -42,6 +42,8 @@
 #include <QPropertyAnimation>
 #include <QDialog>
 #include <QShortcut>
+#include <QStatusBar>
+#include <set>
 #include <filesystem>
 #include <sstream>
 #include <regex>
@@ -239,6 +241,9 @@ protected:
         QTextCharFormat headerFormat; headerFormat.setFontWeight(QFont::Bold);
         QTextCharFormat yamlFormat; yamlFormat.setForeground(QColor("#787774")); yamlFormat.setFontItalic(true);
 
+        QTextCharFormat todoFormat; todoFormat.setForeground(QColor("#eab308")); todoFormat.setFontWeight(QFont::Bold);
+        QTextCharFormat doneFormat; doneFormat.setForeground(QColor("#22c55e")); doneFormat.setFontStrikeOut(true);
+
         QRegularExpression yamlRegex("^---[\\s\\S]*?---");
         QRegularExpressionMatchIterator i = yamlRegex.globalMatch(text);
         while (i.hasNext()) { QRegularExpressionMatch match = i.next(); setFormat(match.capturedStart(), match.capturedLength(), yamlFormat); }
@@ -251,33 +256,35 @@ protected:
         
         QRegularExpression headerRegex("^#+\\s.*"); i = headerRegex.globalMatch(text);
         while (i.hasNext()) { QRegularExpressionMatch match = i.next(); setFormat(match.capturedStart(), match.capturedLength(), headerFormat); }
+
+        QRegularExpression todoRegex("^(?:\\s*)-\\s\\[\\s\\](.*)"); i = todoRegex.globalMatch(text);
+        while (i.hasNext()) { QRegularExpressionMatch match = i.next(); setFormat(match.capturedStart(), match.capturedLength(), todoFormat); }
+
+        QRegularExpression doneRegex("^(?:\\s*)-\\s\\[[xX]\\](.*)"); i = doneRegex.globalMatch(text);
+        while (i.hasNext()) { QRegularExpressionMatch match = i.next(); setFormat(match.capturedStart(), match.capturedLength(), doneFormat); }
     }
 };
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
-    // --- NOU: Securitate inteligentă fără a stoca cheia în cod ---
     unsigned char global_aes_key[32];
-    QString keyPath = ".orbit_key"; // Fișierul care va fi ignorat de Git
+    QString keyPath = ".orbit_key"; 
     
     QFile keyFile(keyPath);
     if (keyFile.exists()) {
-        // Dacă cheia există deja (am deschis aplicația în trecut), o citim.
         if (keyFile.open(QIODevice::ReadOnly)) {
             QByteArray keyData = keyFile.readAll();
             memcpy(global_aes_key, keyData.constData(), 32);
             keyFile.close();
         }
     } else {
-        // Dacă e prima dată când rulăm codul, generăm o cheie aleatorie absolut securizată și o salvăm.
         RAND_bytes(global_aes_key, sizeof(global_aes_key));
         if (keyFile.open(QIODevice::WriteOnly)) {
             keyFile.write((const char*)global_aes_key, 32);
             keyFile.close();
         }
     }
-    // -------------------------------------------------------------------
 
     std::string vaultPath = "../VaultTest";
     std::regex linkPattern(R"(\[\[(.*?)\]\])");
@@ -310,6 +317,7 @@ int main(int argc, char *argv[]) {
         QPushButton#btnFocus:hover { background-color: rgba(255, 255, 255, 0.055); color: #ffffff; border-radius: 4px; }
         QScrollBar:vertical { border: none; background: transparent; width: 6px; margin: 0px; }
         QScrollBar::handle:vertical { background: #373c3f; border-radius: 3px; }
+        QStatusBar { background: transparent; color: #9b9b9b; font-size: 12px; border-top: 1px solid #2d2d2d; }
     )";
 
     QString themeLight = R"(
@@ -317,7 +325,7 @@ int main(int argc, char *argv[]) {
         QMainWindow, QGraphicsView { background-color: #ffffff; border: none; }
         QMenuBar { background-color: #ffffff; color: #37352f; border-bottom: 1px solid #e5e5e5; padding: 2px; }
         QMenuBar::item:selected { background-color: rgba(55, 53, 47, 0.08); color: #37352f; border-radius: 4px; }
-        QMenu { background-color: #ffffff; color: #37352f; border: 1px solid #e5e5e5; border-radius: 6px; padding: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        QMenu { background-color: #ffffff; color: #37352f; border: 1px solid #e5e5e5; border-radius: 6px; padding: 4px; }
         QMenu::item { padding: 6px 30px 6px 12px; border-radius: 4px; }
         QMenu::item:selected { background-color: rgba(55, 53, 47, 0.08); color: #37352f; }
         QSplitter::handle { background-color: transparent; }
@@ -337,6 +345,7 @@ int main(int argc, char *argv[]) {
         QPushButton#btnFocus:hover { background-color: rgba(55, 53, 47, 0.08); color: #37352f; border-radius: 4px; }
         QScrollBar:vertical { border: none; background: transparent; width: 6px; margin: 0px; }
         QScrollBar::handle:vertical { background: #d3d1cb; border-radius: 3px; }
+        QStatusBar { background: transparent; color: #9b9a97; font-size: 12px; border-top: 1px solid #e5e5e5; }
     )";
 
     app.setStyleSheet(themeLight); 
@@ -344,6 +353,11 @@ int main(int argc, char *argv[]) {
     QMainWindow window;
     window.setWindowTitle("Orbit - Pro Edition");
     window.resize(1300, 800); 
+
+    QStatusBar *statusBar = window.statusBar();
+    QLabel *statsLabel = new QLabel("0 Words  •  0 Characters  •  0 min read", &window);
+    statsLabel->setStyleSheet("padding-right: 20px;");
+    statusBar->addPermanentWidget(statsLabel);
 
     QMenuBar *menuBar = new QMenuBar(&window);
     menuBar->setNativeMenuBar(false); 
@@ -415,7 +429,15 @@ int main(int argc, char *argv[]) {
     backlinksLayout->addWidget(backlinksLabel);
     backlinksLayout->addWidget(backlinksList);
 
-    leftSplitter->setSizes(QList<int>() << 600 << 200);
+    QWidget *tagsContainer = new QWidget(leftSplitter);
+    QVBoxLayout *tagsLayout = new QVBoxLayout(tagsContainer);
+    QLabel *tagsLabel = new QLabel("TAGS", tagsContainer);
+    tagsLabel->setStyleSheet("color: #9b9b9b; font-weight: 700; padding: 4px; font-size: 11px; letter-spacing: 1px;");
+    QListWidget *tagsList = new QListWidget(tagsContainer);
+    tagsLayout->addWidget(tagsLabel);
+    tagsLayout->addWidget(tagsList);
+
+    leftSplitter->setSizes(QList<int>() << 500 << 200 << 200);
     leftLayout->addWidget(leftSplitter);
 
     QTabWidget *rightTabs = new QTabWidget(mainSplitter);
@@ -487,6 +509,16 @@ int main(int argc, char *argv[]) {
         return md.replace(yamlRegex, ""); 
     };
 
+    auto updateStats = [statsLabel, textEdit]() {
+        QString text = textEdit->toPlainText();
+        int chars = text.length();
+        int words = text.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts).count();
+        if (text.trimmed().isEmpty()) words = 0;
+        int readingTime = std::max(1, words / 200); 
+        if (words == 0) readingTime = 0;
+        statsLabel->setText(QString("%1 Words  •  %2 Characters  •  %3 min read").arg(words).arg(chars).arg(readingTime));
+    };
+
     std::shared_ptr<QTimer> physicsTimer = std::make_shared<QTimer>();
     QObject::connect(physicsTimer.get(), &QTimer::timeout, [activeNodes, isPhysicsEnabled]() {
         if (!(*isPhysicsEnabled)) return; 
@@ -533,6 +565,7 @@ int main(int argc, char *argv[]) {
         globalGraph->clear(); globalTags->clear(); globalFileContents->clear();
         std::unordered_map<std::string, Node*> nodesMap;
         std::unordered_map<std::string, QTreeWidgetItem*> folderMap;
+        std::set<std::string> uniqueTags; 
 
         if (fs::exists(vaultPath)) {
             for (const auto& entry : fs::recursive_directory_iterator(vaultPath)) {
@@ -568,6 +601,7 @@ int main(int argc, char *argv[]) {
                                 std::string tag = "#" + match[1].str();
                                 if (std::find((*globalTags)[relPath].begin(), (*globalTags)[relPath].end(), tag) == (*globalTags)[relPath].end())
                                     (*globalTags)[relPath].push_back(tag);
+                                uniqueTags.insert(tag); 
                                 temp = match.suffix().str();
                             }
                         }
@@ -602,6 +636,12 @@ int main(int argc, char *argv[]) {
         }
         treeWidget->expandAll();
 
+        tagsList->clear();
+        for (const std::string& t : uniqueTags) {
+            QListWidgetItem *item = new QListWidgetItem(QString::fromStdString(t), tagsList);
+            item->setForeground(QBrush(QColor("#0ea5e9")));
+        }
+
         for (const auto& pair : *globalGraph) {
             std::string nName = std::filesystem::path(pair.first).filename().string();
             if (nodesMap.find(nName) == nodesMap.end()) {
@@ -635,6 +675,10 @@ int main(int argc, char *argv[]) {
     
     reloadSystem();
 
+    QObject::connect(tagsList, &QListWidget::itemClicked, [&](QListWidgetItem *item) {
+        searchBox->setText(item->text()); 
+    });
+
     QObject::connect(actionThemeDark, &QAction::triggered, [&]() {
         *currentGraphTextColor = "#d4d4d4"; 
         app.setStyleSheet(themeDark); 
@@ -660,6 +704,75 @@ int main(int argc, char *argv[]) {
         markdownPreview->setMarkdown(formatPreviewMarkdown(textEdit->toPlainText()));
     });
 
+    // --- REPARAT: Logica de Delete și Rename a fost reintrodusă ---
+    QObject::connect(actionRename, &QAction::triggered, [&]() {
+        QTreeWidgetItem *item = treeWidget->currentItem();
+        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) {
+            QMessageBox::warning(nullptr, "Select Note", "Please select a valid note from the left sidebar to rename.");
+            return;
+        }
+        QString relPath = item->data(0, Qt::UserRole).toString();
+        std::string oldName = std::filesystem::path(relPath.toStdString()).filename().string();
+        std::string nameWithoutExt = oldName.length() >= 3 ? oldName.substr(0, oldName.length() - 3) : oldName;
+        
+        bool ok;
+        QString newName = QInputDialog::getText(nullptr, "Rename Note", "New note name (without .md):", QLineEdit::Normal, QString::fromStdString(nameWithoutExt), &ok);
+        if (ok && !newName.isEmpty()) {
+            std::string oldFullPath = vaultPath + "/" + relPath.toStdString();
+            std::string newRelPath = std::filesystem::path(relPath.toStdString()).parent_path().string();
+            if(newRelPath != "" && newRelPath != ".") newRelPath += "/";
+            else newRelPath = "";
+            newRelPath += newName.toStdString() + ".md";
+            
+            std::string newFullPath = vaultPath + "/" + newRelPath;
+            fs::rename(oldFullPath, newFullPath);
+            if (*currentFile == oldFullPath) *currentFile = newFullPath;
+            reloadSystem();
+        }
+    });
+
+    QObject::connect(actionDelete, &QAction::triggered, [&]() {
+        QTreeWidgetItem *item = treeWidget->currentItem();
+        if (!item || item->data(0, Qt::UserRole).toString().isEmpty()) {
+            QMessageBox::warning(nullptr, "Select Note", "Please select a valid note from the left sidebar to delete.");
+            return;
+        }
+        QString relPath = item->data(0, Qt::UserRole).toString();
+        auto reply = QMessageBox::question(nullptr, "Delete Note", "Are you sure you want to permanently delete '" + item->text(0) + "'?", QMessageBox::Yes | QMessageBox::No);
+        if (reply == QMessageBox::Yes) {
+            std::string fullPath = vaultPath + "/" + relPath.toStdString();
+            fs::remove(fullPath);
+            if (*currentFile == fullPath) {
+                *currentFile = "";
+                textEdit->clear();
+                markdownPreview->clear();
+                updateStats();
+            }
+            reloadSystem();
+        }
+    });
+
+    // --- NOU: Scurtătură tastatură direct în TreeWidget (Delete/Backspace) ---
+    QAction *treeDeleteShortcut = new QAction(treeWidget);
+    treeDeleteShortcut->setShortcuts({QKeySequence::Delete, QKeySequence("Backspace")});
+    treeDeleteShortcut->setShortcutContext(Qt::WidgetShortcut);
+    treeWidget->addAction(treeDeleteShortcut);
+    QObject::connect(treeDeleteShortcut, &QAction::triggered, actionDelete, &QAction::trigger);
+
+    // --- NOU: Meniu Contextual la Click-Dreapta pe notițe ---
+    treeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(treeWidget, &QTreeWidget::customContextMenuRequested, [&](const QPoint &pos) {
+        QTreeWidgetItem *item = treeWidget->itemAt(pos);
+        if (item && !item->data(0, Qt::UserRole).toString().isEmpty()) {
+            treeWidget->setCurrentItem(item);
+            QMenu contextMenu;
+            contextMenu.addAction(actionRename);
+            contextMenu.addAction(actionDelete);
+            contextMenu.exec(treeWidget->viewport()->mapToGlobal(pos));
+        }
+    });
+    // ----------------------------------------------------------------
+
     QObject::connect(actionNew, &QAction::triggered, [&]() {
         QString text = QInputDialog::getText(nullptr, "New Note", "Name:", QLineEdit::Normal, "");
         if (!text.isEmpty()) { 
@@ -678,7 +791,7 @@ int main(int argc, char *argv[]) {
         if (!QFile::exists(fullPath)) {
             QFile file(fullPath);
             if (file.open(QIODevice::WriteOnly)) {
-                QString initialText = "---\ndate: " + today + "\ntags: #daily\n---\n\n# Daily Note: " + today + "\n\n";
+                QString initialText = "---\ndate: " + today + "\ntags: #daily\n---\n\n# Daily Note: " + today + "\n\n- [ ] My first task\n";
                 QByteArray out = encryptAES(initialText.toUtf8(), global_aes_key);
                 file.write(out);
             }
@@ -731,6 +844,7 @@ int main(int argc, char *argv[]) {
     });
 
     QObject::connect(textEdit, &QTextEdit::textChanged, [&]() {
+        updateStats(); 
         if (!*isProgrammaticChange && !currentFile->empty()) {
             QSaveFile file(QString::fromStdString(*currentFile));
             if (file.open(QIODevice::WriteOnly)) {
@@ -758,6 +872,7 @@ int main(int argc, char *argv[]) {
             
             textEdit->setPlainText(text);
             markdownPreview->setMarkdown(formatPreviewMarkdown(text)); 
+            updateStats();
             *currentFile = fullPath;
             *isProgrammaticChange = false; rightTabs->setCurrentIndex(0);
         }
