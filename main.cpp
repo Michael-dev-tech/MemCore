@@ -44,7 +44,10 @@
 #include <QDialog>
 #include <QShortcut>
 #include <QStatusBar>
-#include <QSettings> // --- NOU: Memorie pentru setări (Dark/Light mode) ---
+#include <QSettings>
+#include <QListWidget>
+#include <QStackedWidget>
+#include <QCheckBox>
 #include <set>
 #include <filesystem>
 #include <sstream>
@@ -112,6 +115,77 @@ QByteArray decryptAES(const QByteArray &base64Text, const unsigned char* key) {
     return plaintext;
 }
 
+// --- NOU: Fereastra de Setări Stilizată (Obsidian Settings Modal) ---
+class SettingsDialog : public QDialog {
+public:
+    SettingsDialog(QWidget *parent = nullptr) : QDialog(parent) {
+        setWindowTitle("Orbit Settings");
+        resize(800, 550);
+        setStyleSheet("background-color: #1e1e1e; color: #dcddde; font-family: -apple-system, sans-serif;");
+
+        QHBoxLayout *mainLayout = new QHBoxLayout(this);
+        mainLayout->setContentsMargins(0, 0, 0, 0);
+        mainLayout->setSpacing(0);
+
+        // Meniul lateral din setări (Categorii)
+        QListWidget *categoryList = new QListWidget(this);
+        categoryList->setFixedWidth(220);
+        categoryList->setStyleSheet(
+            "QListWidget { background-color: #252525; border-right: 1px solid #2a2a2a; padding-top: 20px; outline: none; }"
+            "QListWidget::item { padding: 10px 16px; color: #a1a1aa; border-radius: 4px; margin: 2px 10px; }"
+            "QListWidget::item:selected { background-color: #8b5cf6; color: white; font-weight: 500; }"
+            "QListWidget::item:hover:!selected { background-color: rgba(255,255,255,0.03); color: #e4e4e7; }"
+        );
+
+        categoryList->addItem("General");
+        categoryList->addItem("Editor");
+        categoryList->addItem("Files and links");
+        categoryList->addItem("Appearance");
+        categoryList->addItem("Hotkeys");
+        categoryList->addItem("Core plugins");
+        categoryList->addItem("Community plugins");
+
+        // Panoul de conținut din dreapta
+        QStackedWidget *stackedWidget = new QStackedWidget(this);
+        stackedWidget->setStyleSheet("background-color: #1e1e1e; padding: 20px;");
+
+        // Pagina General
+        QWidget *generalPage = new QWidget();
+        QVBoxLayout *genLayout = new QVBoxLayout(generalPage);
+        genLayout->addWidget(new QLabel("<h2 style='color:#e4e4e7;'>General Settings</h2>"));
+        genLayout->addWidget(new QLabel("Manage your application behavior and startup preferences."));
+        genLayout->addStretch();
+
+        // Pagina Appearance
+        QWidget *appearancePage = new QWidget();
+        QVBoxLayout *appLayout = new QVBoxLayout(appearancePage);
+        appLayout->addWidget(new QLabel("<h2 style='color:#e4e4e7;'>Appearance</h2>"));
+        appLayout->addWidget(new QLabel("Customize how Orbit looks on your device."));
+        appLayout->addStretch();
+
+        // Pagina Plugins (Core/Community)
+        QWidget *pluginsPage = new QWidget();
+        QVBoxLayout *plugLayout = new QVBoxLayout(pluginsPage);
+        plugLayout->addWidget(new QLabel("<h2 style='color:#e4e4e7;'>Core Plugins</h2>"));
+        plugLayout->addWidget(new QLabel("Enable or disable built-in features like Backlinks, Canvas, and Graph View."));
+        plugLayout->addStretch();
+
+        stackedWidget->addWidget(generalPage);
+        stackedWidget->addWidget(appearancePage);
+        stackedWidget->addWidget(new QWidget()); // Editor placeholder
+        stackedWidget->addWidget(new QWidget()); // Files placeholder
+        stackedWidget->addWidget(new QWidget()); // Hotkeys placeholder
+        stackedWidget->addWidget(pluginsPage);
+        stackedWidget->addWidget(new QWidget()); // Community plugins placeholder
+
+        connect(categoryList, &QListWidget::currentRowChanged, stackedWidget, &QStackedWidget::setCurrentIndex);
+        categoryList->setCurrentRow(0);
+
+        mainLayout->addWidget(categoryList);
+        mainLayout->addWidget(stackedWidget);
+    }
+};
+
 enum NodeType { FILE_NODE, TAG_NODE };
 
 class Edge;
@@ -120,11 +194,11 @@ class Node : public QGraphicsEllipseItem {
 public:
     Node(const QString& name, NodeType type = FILE_NODE) : QGraphicsEllipseItem(-18, -18, 36, 36), name(name) {
         setFlag(ItemIsMovable); setFlag(ItemSendsGeometryChanges);
-        if (type == TAG_NODE) { setBrush(QColor("#0ea5e9")); setRect(-14, -14, 28, 28); } 
+        if (type == TAG_NODE) { setBrush(QColor("#a1a1aa")); setRect(-14, -14, 28, 28); } 
         else { setBrush(QColor("#8b5cf6")); }
         setPen(QPen(QColor(128, 128, 128, 40), 1)); 
         textItem = new QGraphicsTextItem(name, this);
-        textItem->setDefaultTextColor(QColor("#37352f")); 
+        textItem->setDefaultTextColor(QColor("#dcddde")); 
         QFont modernFont("-apple-system", type == TAG_NODE ? 10 : 11);
         if (type == TAG_NODE) modernFont.setBold(true);
         textItem->setFont(modernFont);
@@ -141,7 +215,7 @@ private:
 class Edge : public QGraphicsLineItem {
 public:
     Edge(Node* source, Node* dest) : source(source), dest(dest) {
-        setPen(QPen(QColor("#9ca3af"), 1.0)); setZValue(-1); adjust();
+        setPen(QPen(QColor("#404040"), 1.0)); setZValue(-1); adjust();
     }
     Node* source; Node* dest;
     void adjust() { if (source && dest) setLine(QLineF(source->pos(), dest->pos())); }
@@ -161,15 +235,15 @@ public:
     CommandPalette(QWidget *parent = nullptr) : QDialog(parent) {
         setWindowFlags(Qt::FramelessWindowHint | Qt::Popup);
         setFixedSize(400, 300);
-        setStyleSheet("background-color: #202020; color: #d4d4d4; border: 1px solid #373c3f; border-radius: 8px;");
+        setStyleSheet("background-color: #252525; color: #dcddde; border: 1px solid #3a3a3a; border-radius: 8px;");
         
         QVBoxLayout *layout = new QVBoxLayout(this);
         searchBox = new QLineEdit(this);
         searchBox->setPlaceholderText("Type a command...");
-        searchBox->setStyleSheet("background-color: #191919; border: none; padding: 10px; font-size: 14px; border-radius: 4px;");
+        searchBox->setStyleSheet("background-color: #1e1e1e; border: 1px solid #333; padding: 10px; font-size: 14px; border-radius: 4px;");
         
         listWidget = new QListWidget(this);
-        listWidget->setStyleSheet("QListWidget { border: none; font-size: 13px; } QListWidget::item { padding: 8px; } QListWidget::item:selected { background-color: #373c3f; border-radius: 4px; }");
+        listWidget->setStyleSheet("QListWidget { border: none; font-size: 13px; outline: none; } QListWidget::item { padding: 8px; border-radius: 4px; } QListWidget::item:selected { background-color: #8b5cf6; color: white; }");
         
         layout->addWidget(searchBox);
         layout->addWidget(listWidget);
@@ -238,12 +312,12 @@ public:
     MarkdownHighlighter(QTextDocument *parent = nullptr) : QSyntaxHighlighter(parent) {}
 protected:
     void highlightBlock(const QString &text) override {
-        QTextCharFormat linkFormat; linkFormat.setForeground(QColor("#8b5cf6")); linkFormat.setFontWeight(QFont::Bold);
-        QTextCharFormat tagFormat; tagFormat.setForeground(QColor("#0ea5e9")); 
-        QTextCharFormat headerFormat; headerFormat.setFontWeight(QFont::Bold);
-        QTextCharFormat yamlFormat; yamlFormat.setForeground(QColor("#787774")); yamlFormat.setFontItalic(true);
-        QTextCharFormat todoFormat; todoFormat.setForeground(QColor("#eab308")); todoFormat.setFontWeight(QFont::Bold);
-        QTextCharFormat doneFormat; doneFormat.setForeground(QColor("#22c55e")); doneFormat.setFontStrikeOut(true);
+        QTextCharFormat linkFormat; linkFormat.setForeground(QColor("#a78bfa")); 
+        QTextCharFormat tagFormat; tagFormat.setForeground(QColor("#71717a")); 
+        QTextCharFormat headerFormat; headerFormat.setFontWeight(QFont::Bold); headerFormat.setForeground(QColor("#e4e4e7"));
+        QTextCharFormat yamlFormat; yamlFormat.setForeground(QColor("#52525b")); yamlFormat.setFontItalic(true);
+        QTextCharFormat todoFormat; todoFormat.setForeground(QColor("#71717a")); 
+        QTextCharFormat doneFormat; doneFormat.setForeground(QColor("#52525b")); doneFormat.setFontStrikeOut(true);
 
         QRegularExpression yamlRegex("^---[\\s\\S]*?---");
         QRegularExpressionMatchIterator i = yamlRegex.globalMatch(text);
@@ -295,66 +369,68 @@ int main(int argc, char *argv[]) {
     
     QString themeDark = R"(
         * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; outline: 0; }
-        QMainWindow, QGraphicsView { background-color: #191919; border: none; }
-        QMenuBar { background-color: #191919; color: #d4d4d4; border-bottom: 1px solid #2d2d2d; padding: 2px; }
-        QMenuBar::item:selected { background-color: rgba(255, 255, 255, 0.055); color: #ffffff; border-radius: 4px; }
-        QMenu { background-color: #202020; color: #d4d4d4; border: 1px solid #373c3f; border-radius: 6px; padding: 4px; }
+        QMainWindow, QGraphicsView { background-color: #1e1e1e; border: none; }
+        QMenuBar { background-color: #1e1e1e; color: #a1a1aa; padding: 4px; border-bottom: 1px solid #2a2a2a; }
+        QMenuBar::item:selected { background-color: rgba(255, 255, 255, 0.05); color: #e4e4e7; border-radius: 4px; }
+        QMenu { background-color: #252525; color: #a1a1aa; border: 1px solid #333; border-radius: 6px; padding: 4px; }
         QMenu::item { padding: 6px 30px 6px 12px; border-radius: 4px; }
-        QMenu::item:selected { background-color: rgba(255, 255, 255, 0.055); color: #ffffff; }
-        QSplitter::handle { background-color: transparent; }
-        QWidget#leftContainer { background-color: #202020; border-right: 1px solid #2d2d2d; } 
-        QTreeWidget, QListWidget { background-color: transparent; color: #9b9b9b; border: none; font-size: 13px; outline: none; }
+        QMenu::item:selected { background-color: #8b5cf6; color: #ffffff; }
+        QSplitter::handle { background-color: #2a2a2a; } 
+        QWidget#leftContainer { background-color: #252525; border-right: 1px solid #2a2a2a; } 
+        QTreeWidget, QListWidget { background-color: transparent; color: #a1a1aa; border: none; font-size: 13px; outline: none; }
         QTreeWidget::item { padding: 5px 8px; border-radius: 4px; margin: 1px 8px; }
-        QTreeWidget::item:selected { background-color: rgba(255, 255, 255, 0.055); color: #e0e0e0; font-weight: 600; }
-        QTreeWidget::item:hover:!selected { background-color: rgba(255, 255, 255, 0.03); color: #e0e0e0; }
-        QTextEdit, QTextBrowser { background-color: #191919; color: #d4d4d4; border: none; padding: 40px 80px; font-size: 16px; line-height: 1.7; }
-        QTextBrowser { border-left: 1px solid #2d2d2d; }
-        QLineEdit { background-color: rgba(255, 255, 255, 0.055); color: #d4d4d4; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px 4px 12px 12px; }
-        QLineEdit:focus { border: 1px solid #4b4b4b; background-color: #202020; }
-        QPushButton#btnNewNote { background-color: #8b5cf6; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 18px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
-        QPushButton#btnNewNote:hover { background-color: #7c3aed; }
-        QTabWidget::pane { border: none; background-color: #191919; border-top: 1px solid #2d2d2d; }
-        QTabBar::tab { background-color: transparent; color: #9b9b9b; padding: 10px 20px; font-weight: 600; border-bottom: 2px solid transparent; }
-        QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #d4d4d4; }
-        QPushButton#btnFocus { background-color: transparent; color: #9b9b9b; border: none; padding: 6px 12px; margin: 4px; font-size: 13px; }
-        QPushButton#btnFocus:hover { background-color: rgba(255, 255, 255, 0.055); color: #ffffff; border-radius: 4px; }
+        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.15); color: #e4e4e7; font-weight: 500; }
+        QTreeWidget::item:hover:!selected { background-color: rgba(255, 255, 255, 0.03); color: #e4e4e7; }
+        QTextEdit, QTextBrowser { background-color: #1e1e1e; color: #dcddde; border: none; padding: 40px 60px; font-size: 15px; line-height: 1.6; }
+        QTextBrowser { border-left: 1px solid #2a2a2a; }
+        QLineEdit { background-color: #1a1a1a; color: #dcddde; border: 1px solid #333; padding: 6px 10px; border-radius: 6px; margin: 12px 4px 12px 12px; }
+        QLineEdit:focus { border: 1px solid #8b5cf6; }
+        QPushButton#btnNewNote { background-color: transparent; color: #71717a; border: 1px solid #333; border-radius: 6px; font-weight: bold; font-size: 16px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
+        QPushButton#btnNewNote:hover { background-color: #333; color: #e4e4e7; }
+        QTabWidget::pane { border: none; background-color: #1e1e1e; border-top: 1px solid #2a2a2a; }
+        QTabBar::tab { background-color: #202020; color: #71717a; padding: 8px 24px; border-right: 1px solid #2a2a2a; border-bottom: 1px solid #2a2a2a; font-size: 12px;}
+        QTabBar::tab:selected { background-color: #1e1e1e; color: #e4e4e7; border-bottom: none; }
+        QTabBar::tab:hover:!selected { background-color: #252525; }
+        QPushButton#btnFocus { background-color: transparent; color: #71717a; border: none; padding: 6px 12px; margin: 4px; font-size: 12px; }
+        QPushButton#btnFocus:hover { color: #e4e4e7; }
         QScrollBar:vertical { border: none; background: transparent; width: 6px; margin: 0px; }
-        QScrollBar::handle:vertical { background: #373c3f; border-radius: 3px; }
-        QStatusBar { background: transparent; color: #9b9b9b; font-size: 12px; border-top: 1px solid #2d2d2d; }
+        QScrollBar::handle:vertical { background: #3f3f46; border-radius: 3px; }
+        QStatusBar { background: transparent; color: #71717a; font-size: 11px; border-top: 1px solid #2a2a2a; }
     )";
 
     QString themeLight = R"(
         * { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; outline: 0; }
         QMainWindow, QGraphicsView { background-color: #ffffff; border: none; }
-        QMenuBar { background-color: #ffffff; color: #37352f; border-bottom: 1px solid #e5e5e5; padding: 2px; }
-        QMenuBar::item:selected { background-color: rgba(55, 53, 47, 0.08); color: #37352f; border-radius: 4px; }
-        QMenu { background-color: #ffffff; color: #37352f; border: 1px solid #e5e5e5; border-radius: 6px; padding: 4px; }
+        QMenuBar { background-color: #ffffff; color: #52525b; padding: 4px; border-bottom: 1px solid #e4e4e7; }
+        QMenuBar::item:selected { background-color: rgba(0, 0, 0, 0.04); color: #18181b; border-radius: 4px; }
+        QMenu { background-color: #ffffff; color: #52525b; border: 1px solid #e4e4e7; border-radius: 6px; padding: 4px; }
         QMenu::item { padding: 6px 30px 6px 12px; border-radius: 4px; }
-        QMenu::item:selected { background-color: rgba(55, 53, 47, 0.08); color: #37352f; }
-        QSplitter::handle { background-color: transparent; }
-        QWidget#leftContainer { background-color: #f7f7f5; border-right: 1px solid #e5e5e5; } 
-        QTreeWidget, QListWidget { background-color: transparent; color: #6b6a65; border: none; font-size: 13px; outline: none; }
+        QMenu::item:selected { background-color: #8b5cf6; color: #ffffff; }
+        QSplitter::handle { background-color: #e4e4e7; } 
+        QWidget#leftContainer { background-color: #fafafa; border-right: 1px solid #e4e4e7; } 
+        QTreeWidget, QListWidget { background-color: transparent; color: #52525b; border: none; font-size: 13px; outline: none; }
         QTreeWidget::item { padding: 5px 8px; border-radius: 4px; margin: 1px 8px; }
-        QTreeWidget::item:selected { background-color: rgba(55, 53, 47, 0.08); color: #37352f; font-weight: 600; }
-        QTreeWidget::item:hover:!selected { background-color: rgba(55, 53, 47, 0.04); color: #37352f; }
-        QTextEdit, QTextBrowser { background-color: #ffffff; color: #37352f; border: none; padding: 40px 80px; font-size: 16px; line-height: 1.7; }
-        QTextBrowser { border-left: 1px solid #e5e5e5; }
-        QLineEdit { background-color: rgba(55, 53, 47, 0.04); color: #37352f; border: 1px solid transparent; padding: 6px 10px; border-radius: 4px; margin: 12px 4px 12px 12px; }
-        QLineEdit:focus { border: 1px solid #e5e5e5; background-color: #ffffff; }
-        QPushButton#btnNewNote { background-color: #8b5cf6; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 18px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
-        QPushButton#btnNewNote:hover { background-color: #7c3aed; }
-        QTabWidget::pane { border: none; background-color: #ffffff; border-top: 1px solid #e5e5e5; }
-        QTabBar::tab { background-color: transparent; color: #9b9a97; padding: 10px 20px; font-weight: 600; border-bottom: 2px solid transparent; }
-        QTabBar::tab:selected { color: #37352f; border-bottom: 2px solid #37352f; }
-        QPushButton#btnFocus { background-color: transparent; color: #9b9a97; border: none; padding: 6px 12px; margin: 4px; font-size: 13px; }
-        QPushButton#btnFocus:hover { background-color: rgba(55, 53, 47, 0.08); color: #37352f; border-radius: 4px; }
+        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.1); color: #18181b; font-weight: 500; }
+        QTreeWidget::item:hover:!selected { background-color: rgba(0, 0, 0, 0.03); color: #18181b; }
+        QTextEdit, QTextBrowser { background-color: #ffffff; color: #27272a; border: none; padding: 40px 60px; font-size: 15px; line-height: 1.6; }
+        QTextBrowser { border-left: 1px solid #e4e4e7; }
+        QLineEdit { background-color: #ffffff; color: #27272a; border: 1px solid #e4e4e7; padding: 6px 10px; border-radius: 6px; margin: 12px 4px 12px 12px; }
+        QLineEdit:focus { border: 1px solid #8b5cf6; }
+        QPushButton#btnNewNote { background-color: transparent; color: #a1a1aa; border: 1px solid #e4e4e7; border-radius: 6px; font-weight: bold; font-size: 16px; margin: 12px 12px 12px 0px; padding: 4px 12px; }
+        QPushButton#btnNewNote:hover { background-color: #f4f4f5; color: #18181b; }
+        QTabWidget::pane { border: none; background-color: #ffffff; border-top: 1px solid #e4e4e7; }
+        QTabBar::tab { background-color: #fafafa; color: #a1a1aa; padding: 8px 24px; border-right: 1px solid #e4e4e7; border-bottom: 1px solid #e4e4e7; font-size: 12px;}
+        QTabBar::tab:selected { background-color: #ffffff; color: #18181b; border-bottom: none; }
+        QTabBar::tab:hover:!selected { background-color: #f4f4f5; }
+        QPushButton#btnFocus { background-color: transparent; color: #a1a1aa; border: none; padding: 6px 12px; margin: 4px; font-size: 12px; }
+        QPushButton#btnFocus:hover { color: #18181b; }
         QScrollBar:vertical { border: none; background: transparent; width: 6px; margin: 0px; }
-        QScrollBar::handle:vertical { background: #d3d1cb; border-radius: 3px; }
-        QStatusBar { background: transparent; color: #9b9a97; font-size: 12px; border-top: 1px solid #e5e5e5; }
+        QScrollBar::handle:vertical { background: #d4d4d8; border-radius: 3px; }
+        QStatusBar { background: transparent; color: #a1a1aa; font-size: 11px; border-top: 1px solid #e4e4e7; }
     )";
 
     QMainWindow window;
-    window.setWindowTitle("Orbit - Enterprise Edition");
+    window.setWindowTitle("Orbit");
     window.resize(1300, 800); 
 
     QStatusBar *statusBar = window.statusBar();
@@ -398,11 +474,19 @@ int main(int argc, char *argv[]) {
     QAction *actionThemeDark = themeMenu->addAction("Dark Mode");
     QAction *actionThemeLight = themeMenu->addAction("Light Mode");
 
+    // --- NOU: Meniu Settings dedicat ---
+    QMenu *settingsMenu = menuBar->addMenu("&Settings");
+    QAction *actionOpenSettings = settingsMenu->addAction("Open Settings...");
+    QObject::connect(actionOpenSettings, &QAction::triggered, [&]() {
+        SettingsDialog settingsDlg(&window);
+        settingsDlg.exec();
+    });
+
     QMenu *helpMenu = menuBar->addMenu("&Help");
     QAction *actionAbout = helpMenu->addAction("About Orbit");
 
     QSplitter *mainSplitter = new QSplitter(Qt::Horizontal, &window);
-    mainSplitter->setHandleWidth(4);
+    mainSplitter->setHandleWidth(1); 
 
     QWidget *leftContainer = new QWidget(mainSplitter);
     leftContainer->setObjectName("leftContainer");
@@ -428,7 +512,7 @@ int main(int argc, char *argv[]) {
     leftLayout->addWidget(searchContainer);
 
     QSplitter *leftSplitter = new QSplitter(Qt::Vertical, leftContainer);
-    leftSplitter->setHandleWidth(4);
+    leftSplitter->setHandleWidth(1);
     
     QTreeWidget *treeWidget = new QTreeWidget(leftSplitter);
     treeWidget->setHeaderHidden(true); 
@@ -436,7 +520,7 @@ int main(int argc, char *argv[]) {
     QWidget *backlinksContainer = new QWidget(leftSplitter);
     QVBoxLayout *backlinksLayout = new QVBoxLayout(backlinksContainer);
     QLabel *backlinksLabel = new QLabel("BACKLINKS", backlinksContainer);
-    backlinksLabel->setStyleSheet("color: #9b9b9b; font-weight: 700; padding: 4px; font-size: 11px; letter-spacing: 1px;");
+    backlinksLabel->setStyleSheet("color: #71717a; font-weight: 600; padding: 4px; font-size: 10px; letter-spacing: 1px;");
     QListWidget *backlinksList = new QListWidget(backlinksContainer);
     backlinksLayout->addWidget(backlinksLabel);
     backlinksLayout->addWidget(backlinksList);
@@ -444,13 +528,31 @@ int main(int argc, char *argv[]) {
     QWidget *tagsContainer = new QWidget(leftSplitter);
     QVBoxLayout *tagsLayout = new QVBoxLayout(tagsContainer);
     QLabel *tagsLabel = new QLabel("TAGS", tagsContainer);
-    tagsLabel->setStyleSheet("color: #9b9b9b; font-weight: 700; padding: 4px; font-size: 11px; letter-spacing: 1px;");
+    tagsLabel->setStyleSheet("color: #71717a; font-weight: 600; padding: 4px; font-size: 10px; letter-spacing: 1px;");
     QListWidget *tagsList = new QListWidget(tagsContainer);
     tagsLayout->addWidget(tagsLabel);
     tagsLayout->addWidget(tagsList);
 
-    leftSplitter->setSizes(QList<int>() << 500 << 200 << 200);
+    // --- NOU: Footer discret în stânga jos (Obsidian-Style Vault Name) ---
+    QWidget *vaultFooter = new QWidget(leftContainer);
+    QHBoxLayout *footerLayout = new QHBoxLayout(vaultFooter);
+    footerLayout->setContentsMargins(12, 8, 12, 8);
+    QLabel *vaultNameLabel = new QLabel("📁 Orbit Vault", vaultFooter);
+    vaultNameLabel->setStyleSheet("color: #71717a; font-size: 11px; font-weight: 500;");
+    QPushButton *btnSettingsFooter = new QPushButton("⚙️", vaultFooter);
+    btnSettingsFooter->setFixedSize(24, 24);
+    btnSettingsFooter->setStyleSheet("background: transparent; border: none; font-size: 12px;");
+    QObject::connect(btnSettingsFooter, &QPushButton::clicked, [&]() {
+        SettingsDialog settingsDlg(&window);
+        settingsDlg.exec();
+    });
+    footerLayout->addWidget(vaultNameLabel);
+    footerLayout->addStretch();
+    footerLayout->addWidget(btnSettingsFooter);
+
+    leftSplitter->setSizes(QList<int>() << 450 << 175 << 175);
     leftLayout->addWidget(leftSplitter);
+    leftLayout->addWidget(vaultFooter); // Adăugat jos în stânga
 
     QTabWidget *rightTabs = new QTabWidget(mainSplitter);
     rightTabs->setTabsClosable(true); 
@@ -466,12 +568,12 @@ int main(int argc, char *argv[]) {
     rightTabs->tabBar()->setTabButton(0, QTabBar::RightSide, nullptr); 
     rightTabs->tabBar()->setTabButton(0, QTabBar::LeftSide, nullptr);
 
-    mainSplitter->setSizes(QList<int>() << 280 << 1020); 
+    mainSplitter->setSizes(QList<int>() << 260 << 1040); 
     window.setCentralWidget(mainSplitter);
 
     auto activeNodes = std::make_shared<std::vector<Node*>>();
     auto isPhysicsEnabled = std::make_shared<bool>(true);
-    auto currentGraphTextColor = std::make_shared<QString>("#37352f"); 
+    auto currentGraphTextColor = std::make_shared<QString>("#dcddde"); 
     auto globalGraph = std::make_shared<std::unordered_map<std::string, std::vector<std::string>>>();
     auto globalTags = std::make_shared<std::unordered_map<std::string, std::vector<std::string>>>(); 
     auto globalFileContents = std::make_shared<std::unordered_map<std::string, QString>>(); 
@@ -506,7 +608,7 @@ int main(int argc, char *argv[]) {
         QString text = QString::fromUtf8(decryptAES(raw, global_aes_key));
 
         QSplitter *textSplitter = new QSplitter(Qt::Horizontal, rightTabs);
-        textSplitter->setHandleWidth(4);
+        textSplitter->setHandleWidth(1);
         textSplitter->setProperty("file_path", QString::fromStdString(fullPath)); 
 
         MarkdownEditor *textEdit = new MarkdownEditor(textSplitter);
@@ -518,9 +620,9 @@ int main(int argc, char *argv[]) {
         markdownPreview->setOpenExternalLinks(true); 
         markdownPreview->document()->setBaseUrl(QUrl::fromLocalFile(QDir(QString::fromStdString(vaultPath)).absolutePath() + "/"));
         
-        QString previewCSS = (*currentGraphTextColor == "#d4d4d4") ? 
-            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #d4d4d4; line-height: 1.6; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #3f3f46; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #3f3f46; margin-left: 0; padding-left: 1em; color: #a1a1aa; } code { background-color: rgba(255, 255, 255, 0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #202020; overflow-x: auto; } hr { border: 0; border-top: 1px solid #3f3f46; margin: 2em 0; } )" :
-            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #37352f; line-height: 1.6; } h1, h2, h3 { color: #111111; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #eaeaea; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #e5e5e5; margin-left: 0; padding-left: 1em; color: #787774; } code { background-color: rgba(55, 53, 47, 0.09); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #f7f6f3; overflow-x: auto; } hr { border: 0; border-top: 1px solid #e5e5e5; margin: 2em 0; } )";
+        QString previewCSS = (*currentGraphTextColor == "#dcddde") ? 
+            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #dcddde; line-height: 1.6; } h1, h2, h3 { color: #e4e4e7; margin-top: 1.2em; margin-bottom: 0.5em; font-weight: 600; } h1 { border-bottom: 1px solid #2a2a2a; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 3px solid #8b5cf6; margin-left: 0; padding-left: 1em; color: #a1a1aa; font-style: italic; } code { background-color: #252525; padding: 0.2em 0.4em; border-radius: 4px; font-family: monospace; font-size: 13px; color: #a78bfa; } pre code { display: block; padding: 1em; background-color: #1a1a1a; overflow-x: auto; color: #dcddde; border: 1px solid #2a2a2a;} hr { border: 0; border-top: 1px solid #2a2a2a; margin: 2em 0; } a { color: #a78bfa; text-decoration: none; } a:hover { text-decoration: underline; } )" :
+            R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #27272a; line-height: 1.6; } h1, h2, h3 { color: #18181b; margin-top: 1.2em; margin-bottom: 0.5em; font-weight: 600; } h1 { border-bottom: 1px solid #e4e4e7; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 3px solid #8b5cf6; margin-left: 0; padding-left: 1em; color: #71717a; font-style: italic; } code { background-color: #f4f4f5; padding: 0.2em 0.4em; border-radius: 4px; font-family: monospace; font-size: 13px; color: #7c3aed; } pre code { display: block; padding: 1em; background-color: #fafafa; overflow-x: auto; color: #27272a; border: 1px solid #e4e4e7;} hr { border: 0; border-top: 1px solid #e4e4e7; margin: 2em 0; } a { color: #7c3aed; text-decoration: none; } a:hover { text-decoration: underline; } )";
         
         markdownPreview->document()->setDefaultStyleSheet(previewCSS);
         markdownPreview->setMarkdown(formatPreviewMarkdown(text));
@@ -659,7 +761,7 @@ int main(int argc, char *argv[]) {
                         if (folderMap.find(folderPath) == folderMap.end()) {
                             QTreeWidgetItem *folderItem = new QTreeWidgetItem(treeWidget);
                             folderItem->setText(0, QString::fromStdString("📁 " + folderPath));
-                            folderItem->setForeground(0, QBrush(QColor("#a1a1aa")));
+                            folderItem->setForeground(0, QBrush(QColor("#71717a"))); 
                             folderMap[folderPath] = folderItem;
                         }
                         noteItem = new QTreeWidgetItem(folderMap[folderPath]);
@@ -672,11 +774,11 @@ int main(int argc, char *argv[]) {
                     
                     for (const std::string& link : (*globalGraph)[relPath]) {
                         QTreeWidgetItem *c = new QTreeWidgetItem(noteItem);
-                        c->setText(0, QString::fromStdString("↗ " + link)); c->setForeground(0, QBrush(QColor("#a1a1aa"))); 
+                        c->setText(0, QString::fromStdString("↗ " + link)); c->setForeground(0, QBrush(QColor("#71717a"))); 
                     }
                     for (const std::string& tag : (*globalTags)[relPath]) {
                         QTreeWidgetItem *c = new QTreeWidgetItem(noteItem);
-                        c->setText(0, QString::fromStdString("🏷️ " + tag)); c->setForeground(0, QBrush(QColor("#0ea5e9"))); 
+                        c->setText(0, QString::fromStdString("🏷️ " + tag)); c->setForeground(0, QBrush(QColor("#a78bfa"))); 
                     }
                 }
             }
@@ -686,7 +788,7 @@ int main(int argc, char *argv[]) {
         tagsList->clear();
         for (const std::string& t : uniqueTags) {
             QListWidgetItem *item = new QListWidgetItem(QString::fromStdString(t), tagsList);
-            item->setForeground(QBrush(QColor("#0ea5e9")));
+            item->setForeground(QBrush(QColor("#a78bfa")));
         }
 
         for (const auto& pair : *globalGraph) {
@@ -734,27 +836,25 @@ int main(int argc, char *argv[]) {
     };
 
     QObject::connect(actionThemeDark, &QAction::triggered, [&]() {
-        *currentGraphTextColor = "#d4d4d4"; 
+        *currentGraphTextColor = "#dcddde"; 
         app.setStyleSheet(themeDark); 
         for (Node* n : *activeNodes) n->setTextColor(QColor(*currentGraphTextColor)); 
         
-        QString darkPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #d4d4d4; line-height: 1.6; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #3f3f46; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #3f3f46; margin-left: 0; padding-left: 1em; color: #a1a1aa; } code { background-color: rgba(255, 255, 255, 0.05); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #202020; overflow-x: auto; } hr { border: 0; border-top: 1px solid #3f3f46; margin: 2em 0; } )";
+        QString darkPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #dcddde; line-height: 1.6; } h1, h2, h3 { color: #e4e4e7; margin-top: 1.2em; margin-bottom: 0.5em; font-weight: 600; } h1 { border-bottom: 1px solid #2a2a2a; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 3px solid #8b5cf6; margin-left: 0; padding-left: 1em; color: #a1a1aa; font-style: italic; } code { background-color: #252525; padding: 0.2em 0.4em; border-radius: 4px; font-family: monospace; font-size: 13px; color: #a78bfa; } pre code { display: block; padding: 1em; background-color: #1a1a1a; overflow-x: auto; color: #dcddde; border: 1px solid #2a2a2a;} hr { border: 0; border-top: 1px solid #2a2a2a; margin: 2em 0; } a { color: #a78bfa; text-decoration: none; } a:hover { text-decoration: underline; } )";
         applyThemeToAllTabs(darkPreviewCSS);
 
-        // Salvăm setarea de Dark Mode
         QSettings settings("Orbit", "EnterpriseEdition");
         settings.setValue("theme", "dark");
     });
     
     QObject::connect(actionThemeLight, &QAction::triggered, [&]() {
-        *currentGraphTextColor = "#37352f"; 
+        *currentGraphTextColor = "#18181b"; 
         app.setStyleSheet(themeLight); 
         for (Node* n : *activeNodes) n->setTextColor(QColor(*currentGraphTextColor)); 
         
-        QString lightPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #37352f; line-height: 1.6; } h1, h2, h3 { color: #111111; margin-top: 1.2em; margin-bottom: 0.5em; } h1 { border-bottom: 1px solid #eaeaea; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 4px solid #e5e5e5; margin-left: 0; padding-left: 1em; color: #787774; } code { background-color: rgba(55, 53, 47, 0.09); padding: 0.2em 0.4em; border-radius: 3px; font-family: monospace; font-size: 13px; } pre code { display: block; padding: 1em; background-color: #f7f6f3; overflow-x: auto; } hr { border: 0; border-top: 1px solid #e5e5e5; margin: 2em 0; } )";
+        QString lightPreviewCSS = R"( body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15px; color: #27272a; line-height: 1.6; } h1, h2, h3 { color: #18181b; margin-top: 1.2em; margin-bottom: 0.5em; font-weight: 600; } h1 { border-bottom: 1px solid #e4e4e7; padding-bottom: 0.2em; } img { max-width: 100%; border-radius: 6px; } blockquote { border-left: 3px solid #8b5cf6; margin-left: 0; padding-left: 1em; color: #71717a; font-style: italic; } code { background-color: #f4f4f5; padding: 0.2em 0.4em; border-radius: 4px; font-family: monospace; font-size: 13px; color: #7c3aed; } pre code { display: block; padding: 1em; background-color: #fafafa; overflow-x: auto; color: #27272a; border: 1px solid #e4e4e7;} hr { border: 0; border-top: 1px solid #e4e4e7; margin: 2em 0; } a { color: #7c3aed; text-decoration: none; } a:hover { text-decoration: underline; } )";
         applyThemeToAllTabs(lightPreviewCSS);
 
-        // Salvăm setarea de Light Mode
         QSettings settings("Orbit", "EnterpriseEdition");
         settings.setValue("theme", "light");
     });
@@ -881,6 +981,7 @@ int main(int argc, char *argv[]) {
     palette->addCommand("File: Daily Note", [&]() { actionDaily->trigger(); });
     palette->addCommand("File: Export PDF", [&]() { actionExportPDF->trigger(); });
     palette->addCommand("View: Toggle Sidebar", [&]() { btnFocus->click(); });
+    palette->addCommand("Settings: Open Settings", [&]() { SettingsDialog d(&window); d.exec(); });
     
     QObject::connect(actionPalette, &QAction::triggered, [palette, &window]() {
         palette->searchBox->clear(); palette->filterCommands("");
@@ -931,7 +1032,6 @@ int main(int argc, char *argv[]) {
         ++it;
     }
 
-    // --- NOU: Notion-Style Welcome Page ---
     if (!hasNotes) {
         std::string welcomeFullPath = vaultPath + "/Welcome.md";
         QFile file(QString::fromStdString(welcomeFullPath));
@@ -958,13 +1058,12 @@ int main(int argc, char *argv[]) {
         openNoteInTab(welcomeFullPath, "Welcome.md");
     }
 
-    // --- NOU: Aplicăm ultima temă salvată ---
     QSettings settings("Orbit", "EnterpriseEdition");
-    QString savedTheme = settings.value("theme", "light").toString();
-    if (savedTheme == "dark") {
-        actionThemeDark->trigger();
-    } else {
+    QString savedTheme = settings.value("theme", "dark").toString();
+    if (savedTheme == "light") {
         actionThemeLight->trigger();
+    } else {
+        actionThemeDark->trigger();
     }
 
     QObject::connect(actionExit, &QAction::triggered, &app, &QApplication::quit);
