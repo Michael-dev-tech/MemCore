@@ -48,6 +48,7 @@
 #include <QComboBox>
 #include <QScrollArea>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QPointer>
 #include <QListView>
 #include <QMenu>
@@ -65,6 +66,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
+#include <hunspell/hunspell.hxx>
 
 namespace fs = std::filesystem;
 
@@ -205,7 +207,7 @@ class SettingsDialog : public QDialog {
     QStackedWidget *stack;
     std::vector<ToggleSwitch*> toggleSwitches;
 public:
-    SettingsDialog(QWidget *parent, const std::function<void(QString)>& onThemeChange) : QDialog(parent) {
+    SettingsDialog(QWidget *parent, const std::function<void(QString)>& onThemeChange, const std::function<void(bool)>& onSpellcheckChange) : QDialog(parent) {
         setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
         resize(800, 600);
         
@@ -276,8 +278,17 @@ public:
         lGen->addWidget(createRow("Automatic Updates", "Keep the application up to date silently.", cb1));
 
         auto *pgEditor = new QWidget(); auto *lEd = new QVBoxLayout(pgEditor); lEd->setContentsMargins(0,0,0,0);
-        auto *cb2 = new ToggleSwitch(); cb2->setChecked(true); toggleSwitches.push_back(cb2);
-        lEd->addWidget(createRow("Spellcheck", "Highlight typos and misspelled words.", cb2));
+        
+        QSettings s("Orbit", "EnterpriseEdition");
+        auto *cbSpell = new ToggleSwitch(); 
+        cbSpell->setChecked(s.value("spellcheck", true).toBool());
+        connect(cbSpell, &QAbstractButton::toggled, [onSpellcheckChange](bool checked){
+            QSettings("Orbit", "EnterpriseEdition").setValue("spellcheck", checked);
+            onSpellcheckChange(checked);
+        });
+        toggleSwitches.push_back(cbSpell);
+        lEd->addWidget(createRow("Spellcheck", "Highlight typos and misspelled words.", cbSpell));
+        
         auto *cbLine = new ToggleSwitch(); cbLine->setChecked(true); toggleSwitches.push_back(cbLine);
         lEd->addWidget(createRow("Readable line length", "Limit the width of the text to make it easier to read.", cbLine));
 
@@ -294,7 +305,6 @@ public:
         comboTheme->setView(new QListView()); 
         comboTheme->addItems({"Dark", "Light", "Solarized Light"});
         
-        QSettings s("Orbit", "EnterpriseEdition");
         QString currentTheme = s.value("theme", "Light").toString(); 
         comboTheme->setCurrentText(currentTheme);
         
@@ -310,7 +320,7 @@ public:
         addPage("Hotkeys", lblHotkeys);
         
         connect(categoryList, &QListWidget::currentRowChanged, stack, &QStackedWidget::setCurrentIndex);
-        categoryList->setCurrentRow(3); 
+        categoryList->setCurrentRow(1); 
         
         applyStyles(currentTheme);
     }
@@ -423,6 +433,9 @@ public:
 class MarkdownHighlighter : public QSyntaxHighlighter {
     QString currentTheme;
 public:
+    std::shared_ptr<Hunspell> hunspell;
+    std::shared_ptr<bool> spellcheckEnabled;
+    
     explicit MarkdownHighlighter(QTextDocument *parent = nullptr) : QSyntaxHighlighter(parent), currentTheme("Light") {}
     void setTheme(const QString& theme) { currentTheme = theme; rehighlight(); }
 protected:
@@ -459,6 +472,21 @@ protected:
         matchAndFormat(headerRegex, headerFormat);
         matchAndFormat(todoRegex, yamlFormat);
         matchAndFormat(doneRegex, doneFormat);
+
+        // -- LOGICA PENTRU SPELLCHECK --
+        if (spellcheckEnabled && *spellcheckEnabled && hunspell) {
+            static const QRegularExpression wordRegex("\\b[a-zA-Z']{2,}\\b");
+            auto i = wordRegex.globalMatch(text);
+            while (i.hasNext()) {
+                auto match = i.next();
+                if (hunspell->spell(match.captured().toStdString()) == 0) {
+                    QTextCharFormat fmt = format(match.capturedStart());
+                    fmt.setUnderlineStyle(QTextCharFormat::SpellCheckUnderline);
+                    fmt.setUnderlineColor(QColor("#ef4444"));
+                    setFormat(match.capturedStart(), match.capturedLength(), fmt);
+                }
+            }
+        }
     }
 };
 
@@ -473,6 +501,23 @@ public:
         highlighter = new MarkdownHighlighter(document());
     }
 protected:
+    void keyPressEvent(QKeyEvent *e) override {
+        // SCURTĂTURI PENTRU BOLD ȘI ITALIC
+        if (e->modifiers() == Qt::ControlModifier) {
+            if (e->key() == Qt::Key_B) {
+                QTextCursor c = textCursor();
+                if (c.hasSelection()) { QString text = c.selectedText(); c.insertText("**" + text + "**"); }
+                return;
+            }
+            if (e->key() == Qt::Key_I) {
+                QTextCursor c = textCursor();
+                if (c.hasSelection()) { QString text = c.selectedText(); c.insertText("*" + text + "*"); }
+                return;
+            }
+        }
+        QTextEdit::keyPressEvent(e);
+    }
+
     void insertFromMimeData(const QMimeData *source) override {
         if (source->hasUrls()) {
             for (const QUrl &url : source->urls()) {
@@ -514,9 +559,12 @@ class Edge;
 
 class Node : public QGraphicsEllipseItem {
 public:
-    Node(const QString& name, NodeType type = FILE_NODE) : QGraphicsEllipseItem(-18, -18, 36, 36), name(name) {
+    std::function<void(QString)> onDoubleClick; 
+
+    Node(const QString& name, NodeType type = FILE_NODE) : QGraphicsEllipseItem(-18, -18, 36, 36), name(name), defaultRadius(18) {
         setFlag(ItemIsMovable); setFlag(ItemSendsGeometryChanges);
-        if (type == TAG_NODE) { setBrush(QColor("#a1a1aa")); setRect(-14, -14, 28, 28); } 
+        setAcceptHoverEvents(true); 
+        if (type == TAG_NODE) { setBrush(QColor("#a1a1aa")); setRect(-14, -14, 28, 28); defaultRadius = 14; } 
         else { setBrush(QColor("#8b5cf6")); }
         setPen(QPen(QColor(128, 128, 128, 40), 1)); 
         textItem = new QGraphicsTextItem(name, this);
@@ -525,10 +573,29 @@ public:
         textItem->setFont(modernFont);
         textItem->setPos(-textItem->boundingRect().width() / 2, (type == TAG_NODE) ? 16 : 22);
     }
-    QString name; std::vector<Edge*> edges; QPointF velocity; 
+    QString name; std::vector<Edge*> edges; QPointF velocity; double defaultRadius;
     void setTextColor(const QColor& color) { textItem->setDefaultTextColor(color); }
+    
 protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
+    
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override {
+        setRect(-defaultRadius - 2, -defaultRadius - 2, (defaultRadius + 2) * 2, (defaultRadius + 2) * 2);
+        setPen(QPen(QColor(139, 92, 246, 200), 3)); 
+        QGraphicsEllipseItem::hoverEnterEvent(event);
+    }
+
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override {
+        setRect(-defaultRadius, -defaultRadius, defaultRadius * 2, defaultRadius * 2);
+        setPen(QPen(QColor(128, 128, 128, 40), 1)); 
+        QGraphicsEllipseItem::hoverLeaveEvent(event);
+    }
+
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override {
+        if (onDoubleClick) onDoubleClick(name);
+        QGraphicsEllipseItem::mouseDoubleClickEvent(event);
+    }
+
 private:
     QGraphicsTextItem* textItem;
 };
@@ -548,6 +615,28 @@ QVariant Node::itemChange(GraphicsItemChange change, const QVariant &value) {
     }
     return QGraphicsEllipseItem::itemChange(change, value);
 }
+
+// --- GRAF VIEW CUSTOM (PENTRU ZOOM) ---
+class GraphView : public QGraphicsView {
+public:
+    GraphView(QGraphicsScene* scene) : QGraphicsView(scene) {
+        setRenderHint(QPainter::Antialiasing);
+        setDragMode(QGraphicsView::ScrollHandDrag);
+        setStyleSheet("background: transparent; border: none; outline: none;");
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+protected:
+    void wheelEvent(QWheelEvent *event) override {
+        if (event->modifiers() & Qt::ControlModifier) {
+            const double scaleFactor = 1.15;
+            if (event->angleDelta().y() > 0) scale(scaleFactor, scaleFactor);
+            else scale(1.0 / scaleFactor, 1.0 / scaleFactor);
+        } else {
+            QGraphicsView::wheelEvent(event);
+        }
+    }
+};
 
 // --- MAIN APP ---
 int main(int argc, char *argv[]) {
@@ -575,99 +664,132 @@ int main(int argc, char *argv[]) {
     std::regex tagPattern(R"((?:^|\s)#([a-zA-Z_][a-zA-Z0-9_-]*))");
     if (!fs::exists(vaultPath)) fs::create_directory(vaultPath);
 
+    // Initializare Hunspell Portabil
+    std::shared_ptr<Hunspell> globalHunspell;
+    QString dictBase = QCoreApplication::applicationDirPath() + "/dict/en_US";
+    
+    if (QFile::exists(dictBase + ".aff") && QFile::exists(dictBase + ".dic")) {
+        globalHunspell = std::make_shared<Hunspell>((dictBase + ".aff").toStdString().c_str(), (dictBase + ".dic").toStdString().c_str());
+    } else {
+        QStringList fallbacks = {"/usr/share/myspell/en_US", "/usr/share/hunspell/en_US"};
+        for (const auto& p : fallbacks) {
+            if (QFile::exists(p + ".aff") && QFile::exists(p + ".dic")) {
+                globalHunspell = std::make_shared<Hunspell>((p + ".aff").toStdString().c_str(), (p + ".dic").toStdString().c_str());
+                break;
+            }
+        }
+    }
+    auto isSpellcheckEnabled = std::make_shared<bool>(QSettings("Orbit", "EnterpriseEdition").value("spellcheck", true).toBool());
+
+    // --- TEME CU EFECT DE LIQUID GLASS ---
     QString themeDark = R"(
         * { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; outline: 0; }
-        QMainWindow { background-color: #18181b; border: 1px solid #000; }
-        QWidget#ribbon { background-color: #18181b; border-right: 1px solid #27272a; }
-        QPushButton#ribbonBtn { background: transparent; color: #a1a1aa; border: none; font-size: 18px; border-radius: 8px; }
-        QPushButton#ribbonBtn:hover { background-color: #27272a; color: #e4e4e7; }
-        QWidget#sidebar { background-color: #09090b; border-right: 1px solid #27272a; }
-        QLineEdit { background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; padding: 8px 12px; border-radius: 6px; }
-        QLineEdit:focus { border: 1px solid #8b5cf6; }
-        QPushButton#newNoteBtn { background: transparent; color: #a1a1aa; border: 1px solid #27272a; border-radius: 6px; font-size: 18px; font-weight: bold; }
-        QPushButton#newNoteBtn:hover { background-color: #27272a; color: #e4e4e7; }
-        QTreeWidget, QListWidget { background: transparent; color: #a1a1aa; border: none; font-size: 13.5px; }
-        QTreeWidget::item { padding: 6px 8px; border-radius: 6px; margin: 1px 8px; }
-        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.15); color: #e4e4e7; font-weight: bold; }
-        QTreeWidget::item:hover:!selected { background-color: rgba(255, 255, 255, 0.05); }
-        QWidget#header { background-color: #18181b; border-bottom: 1px solid #27272a; }
-        QTabBar::tab { background: transparent; color: #71717a; padding: 10px 24px; border: none; border-right: 1px solid #27272a; font-size: 13px; margin-top: 5px; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-        QTabBar::tab:selected { background-color: #18181b; color: #e4e4e7; border-top: 2px solid #8b5cf6; border-left: 1px solid #27272a; border-right: 1px solid #27272a; font-weight: bold; }
-        QTabBar::tab:hover:!selected { background-color: #27272a; }
-        QPushButton#winCtrl { background: transparent; color: #a1a1aa; border: none; font-size: 12px; }
-        QPushButton#winCtrl:hover { background-color: #27272a; color: #e4e4e7; }
-        QPushButton#winCtrlClose { background: transparent; color: #a1a1aa; border: none; font-size: 12px; }
+        QMainWindow { background-color: #09090b; }
+        QWidget#ribbon { background-color: #09090b; }
+        QPushButton#ribbonBtn { background: transparent; color: #71717a; border: none; font-size: 18px; border-radius: 10px; margin: 2px; }
+        QPushButton#ribbonBtn:hover { background-color: #27272a; color: #ffffff; }
+        QWidget#sidebar { background-color: #0e0e11; }
+        QLineEdit { background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+        QLineEdit:focus { border: 1px solid #8b5cf6; background-color: #1e1e24; }
+        QPushButton#newNoteBtn { background: transparent; color: #a1a1aa; border: 1px dashed #27272a; border-radius: 8px; font-size: 18px; font-weight: bold; }
+        QPushButton#newNoteBtn:hover { background-color: #27272a; color: #ffffff; border-style: solid; }
+        QTreeWidget, QListWidget { background: transparent; color: #a1a1aa; border: none; font-size: 14px; }
+        QTreeWidget::item { padding: 10px 12px; border-radius: 8px; margin: 2px 12px; }
+        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.2); color: #c4b5fd; font-weight: 600; }
+        QTreeWidget::item:hover:!selected { background-color: rgba(255, 255, 255, 0.04); color: #e4e4e7; }
+        QWidget#header { background-color: #09090b; }
+        QTabBar::tab { background: transparent; color: #71717a; padding: 12px 24px; border: none; font-size: 13px; font-weight: 500; margin: 6px 4px 0px 4px; border-radius: 8px; }
+        QTabBar::tab:selected { background-color: #27272a; color: #ffffff; }
+        QTabBar::tab:hover:!selected { background-color: rgba(255, 255, 255, 0.05); color: #e4e4e7; }
+        QTabBar::close-button { margin-right: 4px; }
+        QPushButton#winCtrl { background: transparent; color: #71717a; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
+        QPushButton#winCtrl:hover { background-color: #27272a; color: #ffffff; }
+        QPushButton#winCtrlClose { background: transparent; color: #71717a; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
         QPushButton#winCtrlClose:hover { background-color: #ef4444; color: white; }
-        QTextEdit, QTextBrowser { background-color: #18181b; color: #e4e4e7; border: none; padding: 30px 50px; font-size: 15.5px; line-height: 1.7; }
-        QSplitter::handle { background-color: #27272a; }
-        QScrollBar:vertical { border: none; background: transparent; width: 8px; margin: 0px; }
-        QScrollBar::handle:vertical { background: #3f3f46; border-radius: 4px; }
-        QMenu { background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; border-radius: 6px; padding: 4px; }
-        QMenu::item { padding: 6px 20px; border-radius: 4px; }
+        QWidget#workspace, QStackedWidget { background-color: #0e0e11; }
+        QTextEdit, QTextBrowser { background-color: rgba(39, 39, 42, 0.4); color: #e4e4e7; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 30px 40px; font-size: 16px; line-height: 1.8; }
+        QSplitter::handle { background-color: transparent; width: 0px; }
+        QScrollBar:vertical { background: transparent; width: 12px; margin: 0px; }
+        QScrollBar::handle:vertical { background: rgba(255, 255, 255, 0.1); border-radius: 6px; min-height: 30px; margin: 2px; }
+        QScrollBar::handle:vertical:hover { background: rgba(255, 255, 255, 0.2); }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+        QMenu { background-color: #1e1e24; color: #e4e4e7; border: 1px solid #27272a; border-radius: 8px; padding: 6px; }
+        QMenu::item { padding: 8px 24px; border-radius: 6px; }
         QMenu::item:selected { background-color: #27272a; }
     )";
 
     QString themeLight = R"(
         * { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; outline: 0; }
-        QMainWindow { background-color: #ffffff; border: 1px solid #e4e4e7; }
-        QWidget#ribbon { background-color: #ffffff; border-right: 1px solid #e4e4e7; }
-        QPushButton#ribbonBtn { background: transparent; color: #71717a; border: none; font-size: 18px; border-radius: 8px; }
+        QMainWindow { background-color: #f4f4f5; }
+        QWidget#ribbon { background-color: #ffffff; }
+        QPushButton#ribbonBtn { background: transparent; color: #71717a; border: none; font-size: 18px; border-radius: 10px; margin: 2px; }
         QPushButton#ribbonBtn:hover { background-color: #f4f4f5; color: #18181b; }
-        QWidget#sidebar { background-color: #f4f4f5; border-right: 1px solid #e4e4e7; }
-        QLineEdit { background-color: #ffffff; color: #18181b; border: 1px solid #e4e4e7; padding: 8px 12px; border-radius: 6px; }
-        QLineEdit:focus { border: 1px solid #8b5cf6; }
-        QPushButton#newNoteBtn { background: transparent; color: #71717a; border: 1px solid #e4e4e7; border-radius: 6px; font-size: 18px; font-weight: bold; }
-        QPushButton#newNoteBtn:hover { background-color: #e4e4e7; color: #18181b; }
-        QTreeWidget, QListWidget { background: transparent; color: #52525b; border: none; font-size: 13.5px; }
-        QTreeWidget::item { padding: 6px 8px; border-radius: 6px; margin: 1px 8px; }
-        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.1); color: #18181b; font-weight: bold; }
-        QTreeWidget::item:hover:!selected { background-color: rgba(0, 0, 0, 0.05); }
-        QWidget#header { background-color: #ffffff; border-bottom: 1px solid #e4e4e7; }
-        QTabBar::tab { background: transparent; color: #a1a1aa; padding: 10px 24px; border: none; border-right: 1px solid #e4e4e7; font-size: 13px; margin-top: 5px; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-        QTabBar::tab:selected { background-color: #ffffff; color: #18181b; border-top: 2px solid #8b5cf6; border-left: 1px solid #e4e4e7; border-right: 1px solid #e4e4e7; font-weight: bold; }
-        QTabBar::tab:hover:!selected { background-color: #fafafa; }
-        QPushButton#winCtrl { background: transparent; color: #71717a; border: none; font-size: 12px; }
+        QWidget#sidebar { background-color: #fafafa; }
+        QLineEdit { background-color: #ffffff; color: #18181b; border: 1px solid #e4e4e7; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+        QLineEdit:focus { border: 1px solid #8b5cf6; background-color: #ffffff; }
+        QPushButton#newNoteBtn { background: transparent; color: #a1a1aa; border: 1px dashed #e4e4e7; border-radius: 8px; font-size: 18px; font-weight: bold; }
+        QPushButton#newNoteBtn:hover { background-color: #f4f4f5; color: #18181b; border-style: solid; }
+        QTreeWidget, QListWidget { background: transparent; color: #52525b; border: none; font-size: 14px; }
+        QTreeWidget::item { padding: 10px 12px; border-radius: 8px; margin: 2px 12px; }
+        QTreeWidget::item:selected { background-color: rgba(139, 92, 246, 0.1); color: #7c3aed; font-weight: 600; }
+        QTreeWidget::item:hover:!selected { background-color: rgba(0, 0, 0, 0.03); color: #18181b; }
+        QWidget#header { background-color: #ffffff; }
+        QTabBar::tab { background: transparent; color: #a1a1aa; padding: 12px 24px; border: none; font-size: 13px; font-weight: 500; margin: 6px 4px 0px 4px; border-radius: 8px; }
+        QTabBar::tab:selected { background-color: #f4f4f5; color: #18181b; }
+        QTabBar::tab:hover:!selected { background-color: #fafafa; color: #18181b; }
+        QTabBar::close-button { margin-right: 4px; }
+        QPushButton#winCtrl { background: transparent; color: #a1a1aa; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
         QPushButton#winCtrl:hover { background-color: #f4f4f5; color: #18181b; }
-        QPushButton#winCtrlClose { background: transparent; color: #71717a; border: none; font-size: 12px; }
+        QPushButton#winCtrlClose { background: transparent; color: #a1a1aa; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
         QPushButton#winCtrlClose:hover { background-color: #ef4444; color: white; }
-        QTextEdit, QTextBrowser { background-color: #ffffff; color: #18181b; border: none; padding: 30px 50px; font-size: 15.5px; line-height: 1.7; }
-        QSplitter::handle { background-color: #e4e4e7; }
-        QScrollBar:vertical { border: none; background: transparent; width: 8px; margin: 0px; }
-        QScrollBar::handle:vertical { background: #d4d4d8; border-radius: 4px; }
-        QMenu { background-color: #ffffff; color: #18181b; border: 1px solid #e4e4e7; border-radius: 6px; padding: 4px; }
-        QMenu::item { padding: 6px 20px; border-radius: 4px; }
+        QWidget#workspace, QStackedWidget { background-color: #f4f4f5; }
+        QTextEdit, QTextBrowser { background-color: rgba(255, 255, 255, 0.7); color: #18181b; border: 1px solid rgba(255, 255, 255, 1.0); border-radius: 16px; padding: 30px 40px; font-size: 16px; line-height: 1.8; }
+        QSplitter::handle { background-color: transparent; width: 0px; }
+        QScrollBar:vertical { background: transparent; width: 12px; margin: 0px; }
+        QScrollBar::handle:vertical { background: rgba(0, 0, 0, 0.1); border-radius: 6px; min-height: 30px; margin: 2px; }
+        QScrollBar::handle:vertical:hover { background: rgba(0, 0, 0, 0.2); }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+        QMenu { background-color: #ffffff; color: #18181b; border: 1px solid #e4e4e7; border-radius: 8px; padding: 6px; }
+        QMenu::item { padding: 8px 24px; border-radius: 6px; }
         QMenu::item:selected { background-color: #f4f4f5; }
     )";
 
     QString themeSolarizedLight = R"(
         * { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; outline: 0; }
-        QMainWindow { background-color: #fdf6e3; border: 1px solid #e0d8c3; }
-        QWidget#ribbon { background-color: #fdf6e3; border-right: 1px solid #e0d8c3; }
-        QPushButton#ribbonBtn { background: transparent; color: #93a1a1; border: none; font-size: 18px; border-radius: 8px; }
-        QPushButton#ribbonBtn:hover { background-color: #eee8d5; color: #586e75; }
-        QWidget#sidebar { background-color: #eee8d5; border-right: 1px solid #e0d8c3; }
-        QLineEdit { background-color: #fdf6e3; color: #073642; border: 1px solid #e0d8c3; padding: 8px 12px; border-radius: 6px; }
-        QLineEdit:focus { border: 1px solid #b58900; }
-        QPushButton#newNoteBtn { background: transparent; color: #93a1a1; border: 1px solid #e0d8c3; border-radius: 6px; font-size: 18px; font-weight: bold; }
-        QPushButton#newNoteBtn:hover { background-color: #e0d8c3; color: #586e75; }
-        QTreeWidget, QListWidget { background: transparent; color: #586e75; border: none; font-size: 13.5px; }
-        QTreeWidget::item { padding: 6px 8px; border-radius: 6px; margin: 1px 8px; }
-        QTreeWidget::item:selected { background-color: rgba(181, 137, 0, 0.15); color: #073642; font-weight: bold; }
-        QTreeWidget::item:hover:!selected { background-color: rgba(0, 0, 0, 0.05); }
-        QWidget#header { background-color: #fdf6e3; border-bottom: 1px solid #e0d8c3; }
-        QTabBar::tab { background: transparent; color: #93a1a1; padding: 10px 24px; border: none; border-right: 1px solid #e0d8c3; font-size: 13px; margin-top: 5px; border-top-left-radius: 8px; border-top-right-radius: 8px; }
-        QTabBar::tab:selected { background-color: #fdf6e3; color: #073642; border-top: 2px solid #b58900; border-left: 1px solid #e0d8c3; border-right: 1px solid #e0d8c3; font-weight: bold; }
-        QTabBar::tab:hover:!selected { background-color: #eee8d5; }
-        QPushButton#winCtrl { background: transparent; color: #93a1a1; border: none; font-size: 12px; }
-        QPushButton#winCtrl:hover { background-color: #e0d8c3; color: #586e75; }
-        QPushButton#winCtrlClose { background: transparent; color: #93a1a1; border: none; font-size: 12px; }
+        QMainWindow { background-color: #eee8d5; }
+        QWidget#ribbon { background-color: #fdf6e3; }
+        QPushButton#ribbonBtn { background: transparent; color: #93a1a1; border: none; font-size: 18px; border-radius: 10px; margin: 2px; }
+        QPushButton#ribbonBtn:hover { background-color: #eee8d5; color: #073642; }
+        QWidget#sidebar { background-color: #f5efdc; }
+        QLineEdit { background-color: #fdf6e3; color: #073642; border: 1px solid #e0d8c3; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+        QLineEdit:focus { border: 1px solid #b58900; background-color: #fdf6e3; }
+        QPushButton#newNoteBtn { background: transparent; color: #93a1a1; border: 1px dashed #e0d8c3; border-radius: 8px; font-size: 18px; font-weight: bold; }
+        QPushButton#newNoteBtn:hover { background-color: #eee8d5; color: #073642; border-style: solid; }
+        QTreeWidget, QListWidget { background: transparent; color: #586e75; border: none; font-size: 14px; }
+        QTreeWidget::item { padding: 10px 12px; border-radius: 8px; margin: 2px 12px; }
+        QTreeWidget::item:selected { background-color: rgba(181, 137, 0, 0.15); color: #b58900; font-weight: 600; }
+        QTreeWidget::item:hover:!selected { background-color: rgba(0, 0, 0, 0.03); color: #073642; }
+        QWidget#header { background-color: #fdf6e3; }
+        QTabBar::tab { background: transparent; color: #93a1a1; padding: 12px 24px; border: none; font-size: 13px; font-weight: 500; margin: 6px 4px 0px 4px; border-radius: 8px; }
+        QTabBar::tab:selected { background-color: #eee8d5; color: #073642; }
+        QTabBar::tab:hover:!selected { background-color: rgba(0,0,0,0.02); color: #073642; }
+        QTabBar::close-button { margin-right: 4px; }
+        QPushButton#winCtrl { background: transparent; color: #93a1a1; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
+        QPushButton#winCtrl:hover { background-color: #eee8d5; color: #073642; }
+        QPushButton#winCtrlClose { background: transparent; color: #93a1a1; border: none; font-size: 12px; border-radius: 6px; margin: 4px; }
         QPushButton#winCtrlClose:hover { background-color: #ef4444; color: white; }
-        QTextEdit, QTextBrowser { background-color: #fdf6e3; color: #073642; border: none; padding: 30px 50px; font-size: 15.5px; line-height: 1.7; }
-        QSplitter::handle { background-color: #e0d8c3; }
-        QScrollBar:vertical { border: none; background: transparent; width: 8px; margin: 0px; }
-        QScrollBar::handle:vertical { background: #d5c4a1; border-radius: 4px; }
-        QMenu { background-color: #fdf6e3; color: #073642; border: 1px solid #e0d8c3; border-radius: 6px; padding: 4px; }
-        QMenu::item { padding: 6px 20px; border-radius: 4px; }
+        QWidget#workspace, QStackedWidget { background-color: #eee8d5; }
+        QTextEdit, QTextBrowser { background-color: rgba(253, 246, 227, 0.6); color: #073642; border: 1px solid rgba(253, 246, 227, 0.9); border-radius: 16px; padding: 30px 40px; font-size: 16px; line-height: 1.8; }
+        QSplitter::handle { background-color: transparent; width: 0px; }
+        QScrollBar:vertical { background: transparent; width: 12px; margin: 0px; }
+        QScrollBar::handle:vertical { background: rgba(0, 0, 0, 0.1); border-radius: 6px; min-height: 30px; margin: 2px; }
+        QScrollBar::handle:vertical:hover { background: rgba(0, 0, 0, 0.2); }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+        QMenu { background-color: #fdf6e3; color: #073642; border: 1px solid #e0d8c3; border-radius: 8px; padding: 6px; }
+        QMenu::item { padding: 8px 24px; border-radius: 6px; }
         QMenu::item:selected { background-color: #eee8d5; }
     )";
 
@@ -684,19 +806,19 @@ int main(int argc, char *argv[]) {
 
     auto *ribbon = new QWidget();
     ribbon->setObjectName("ribbon");
-    ribbon->setFixedWidth(55);
+    ribbon->setFixedWidth(60);
     auto *ribbonLayout = new QVBoxLayout(ribbon);
-    ribbonLayout->setContentsMargins(5, 10, 5, 10);
-    ribbonLayout->setSpacing(10);
+    ribbonLayout->setContentsMargins(8, 15, 8, 15);
+    ribbonLayout->setSpacing(12);
     ribbon->installEventFilter(new WindowDragger(&window));
 
-    auto *rBtnFiles = new QPushButton("◫"); rBtnFiles->setObjectName("ribbonBtn"); rBtnFiles->setFixedSize(40, 40);
-    auto *rBtnSearch = new QPushButton("🔍"); rBtnSearch->setObjectName("ribbonBtn"); rBtnSearch->setFixedSize(40, 40);
-    auto *rBtnGraph = new QPushButton("🕸️"); rBtnGraph->setObjectName("ribbonBtn"); rBtnGraph->setFixedSize(40, 40);
+    auto *rBtnFiles = new QPushButton("◫"); rBtnFiles->setObjectName("ribbonBtn"); rBtnFiles->setFixedSize(44, 44);
+    auto *rBtnSearch = new QPushButton("🔍"); rBtnSearch->setObjectName("ribbonBtn"); rBtnSearch->setFixedSize(44, 44);
+    auto *rBtnGraph = new QPushButton("🕸️"); rBtnGraph->setObjectName("ribbonBtn"); rBtnGraph->setFixedSize(44, 44);
     ribbonLayout->addWidget(rBtnFiles); ribbonLayout->addWidget(rBtnSearch); ribbonLayout->addWidget(rBtnGraph);
     ribbonLayout->addStretch();
     
-    auto *rBtnSettings = new QPushButton("⚙️"); rBtnSettings->setObjectName("ribbonBtn"); rBtnSettings->setFixedSize(40, 40);
+    auto *rBtnSettings = new QPushButton("⚙️"); rBtnSettings->setObjectName("ribbonBtn"); rBtnSettings->setFixedSize(44, 44);
     ribbonLayout->addWidget(rBtnSettings);
     rootLayout->addWidget(ribbon);
 
@@ -709,18 +831,18 @@ int main(int argc, char *argv[]) {
     sidebarLayout->setContentsMargins(0, 0, 0, 0);
     
     auto *sidebarDrag = new QWidget();
-    sidebarDrag->setFixedHeight(40);
+    sidebarDrag->setFixedHeight(45);
     sidebarDrag->installEventFilter(new WindowDragger(&window));
     sidebarLayout->addWidget(sidebarDrag);
 
     auto *searchArea = new QWidget();
     auto *searchH = new QHBoxLayout(searchArea);
-    searchH->setContentsMargins(15, 0, 15, 15);
+    searchH->setContentsMargins(20, 0, 20, 15);
     auto *searchBox = new QLineEdit();
     searchBox->setPlaceholderText("Search notes...");
     auto *btnNewNote = new QPushButton("+");
     btnNewNote->setObjectName("newNoteBtn");
-    btnNewNote->setFixedSize(32, 32);
+    btnNewNote->setFixedSize(36, 36);
     searchH->addWidget(searchBox); searchH->addWidget(btnNewNote);
     sidebarLayout->addWidget(searchArea);
 
@@ -729,7 +851,7 @@ int main(int argc, char *argv[]) {
     sidebarLayout->addWidget(treeWidget);
 
     auto *vaultName = new QLabel(" Orbit Vault");
-    vaultName->setStyleSheet("padding: 15px; font-weight: bold; font-size: 11px; opacity: 0.5;");
+    vaultName->setStyleSheet("padding: 20px; font-weight: bold; font-size: 12px; opacity: 0.5;");
     sidebarLayout->addWidget(vaultName);
     mainSplitter->addWidget(sidebar);
 
@@ -741,7 +863,7 @@ int main(int argc, char *argv[]) {
 
     auto *header = new QWidget();
     header->setObjectName("header");
-    header->setFixedHeight(40);
+    header->setFixedHeight(45);
     header->installEventFilter(new WindowDragger(&window)); 
     auto *headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(0,0,0,0);
@@ -750,10 +872,11 @@ int main(int argc, char *argv[]) {
     auto *topTabs = new QTabBar();
     topTabs->setTabsClosable(true);
     topTabs->setDrawBase(false);
+    topTabs->setUsesScrollButtons(false);
     
-    auto *btnMin = new QPushButton("—"); btnMin->setObjectName("winCtrl"); btnMin->setFixedSize(45, 40);
-    auto *btnMax = new QPushButton("◻"); btnMax->setObjectName("winCtrl"); btnMax->setFixedSize(45, 40);
-    auto *btnClose = new QPushButton("✕"); btnClose->setObjectName("winCtrlClose"); btnClose->setFixedSize(45, 40);
+    auto *btnMin = new QPushButton("—"); btnMin->setObjectName("winCtrl"); btnMin->setFixedSize(45, 35);
+    auto *btnMax = new QPushButton("◻"); btnMax->setObjectName("winCtrl"); btnMax->setFixedSize(45, 35);
+    auto *btnClose = new QPushButton("✕"); btnClose->setObjectName("winCtrlClose"); btnClose->setFixedSize(45, 35);
     
     QObject::connect(btnMin, &QPushButton::clicked, &window, &QMainWindow::showMinimized);
     QObject::connect(btnMax, &QPushButton::clicked, [&]() {
@@ -773,16 +896,16 @@ int main(int argc, char *argv[]) {
     workspaceLayout->addWidget(tabContent);
 
     auto *statusW = new QWidget();
-    statusW->setFixedHeight(25);
+    statusW->setFixedHeight(30);
     auto *statusLayout = new QHBoxLayout(statusW);
-    statusLayout->setContentsMargins(10,0,10,0);
+    statusLayout->setContentsMargins(15,0,15,0);
     auto *statsLabel = new QLabel("Ready");
-    statsLabel->setStyleSheet("font-size: 11px; opacity: 0.5;");
+    statsLabel->setStyleSheet("font-size: 12px; opacity: 0.5; font-weight: 500;");
     statusLayout->addStretch(); statusLayout->addWidget(statsLabel);
     workspaceLayout->addWidget(statusW);
 
     mainSplitter->addWidget(workspace);
-    mainSplitter->setSizes(QList<int>() << 280 << 1020);
+    mainSplitter->setSizes(QList<int>() << 300 << 1000);
 
     auto *palette = new CommandPalette(&window);
     auto activeTabs = std::make_shared<std::vector<TabData>>();
@@ -836,9 +959,9 @@ int main(int argc, char *argv[]) {
         }
         
         QString css = "";
-        if (themeName == "Dark") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 15.5px; color: #e4e4e7; line-height: 1.7; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; font-weight: 800; } h1 { border-bottom: 1px solid #27272a; padding-bottom: 0.2em; } a { color: #a78bfa; text-decoration: none; } hr { border: 0; border-top: 1px solid #27272a; } blockquote { border-left: 3px solid #8b5cf6; padding-left: 1em; color: #a1a1aa; font-style: italic; } code { background-color: #27272a; padding: 0.2em 0.4em; border-radius: 4px; color: #a78bfa; } )";
-        else if (themeName == "Light") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 15.5px; color: #18181b; line-height: 1.7; } h1, h2, h3 { color: #000000; margin-top: 1.2em; font-weight: 800; } h1 { border-bottom: 1px solid #e4e4e7; padding-bottom: 0.2em; } a { color: #8b5cf6; text-decoration: none; } hr { border: 0; border-top: 1px solid #e4e4e7; } blockquote { border-left: 3px solid #8b5cf6; padding-left: 1em; color: #71717a; font-style: italic; } code { background-color: #f4f4f5; padding: 0.2em 0.4em; border-radius: 4px; color: #7c3aed; } )";
-        else if (themeName == "Solarized Light") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 15.5px; color: #073642; line-height: 1.7; } h1, h2, h3 { color: #002b36; margin-top: 1.2em; font-weight: 800; } h1 { border-bottom: 1px solid #e0d8c3; padding-bottom: 0.2em; } a { color: #b58900; text-decoration: none; } hr { border: 0; border-top: 1px solid #e0d8c3; } blockquote { border-left: 3px solid #b58900; padding-left: 1em; color: #586e75; font-style: italic; } code { background-color: #eee8d5; padding: 0.2em 0.4em; border-radius: 4px; color: #cb4b16; } )";
+        if (themeName == "Dark") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 16px; color: #e4e4e7; line-height: 1.8; } h1, h2, h3 { color: #ffffff; margin-top: 1.2em; font-weight: 800; } h1 { padding-bottom: 0.2em; border-bottom: 1px solid rgba(255,255,255,0.05); } a { color: #a78bfa; text-decoration: none; } hr { border: 0; border-top: 1px solid rgba(255,255,255,0.05); } blockquote { border-left: 3px solid #8b5cf6; padding-left: 1em; color: #a1a1aa; font-style: italic; } code { background-color: #27272a; padding: 0.2em 0.4em; border-radius: 4px; color: #a78bfa; } )";
+        else if (themeName == "Light") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 16px; color: #18181b; line-height: 1.8; } h1, h2, h3 { color: #000000; margin-top: 1.2em; font-weight: 800; } h1 { padding-bottom: 0.2em; border-bottom: 1px solid rgba(0,0,0,0.05); } a { color: #8b5cf6; text-decoration: none; } hr { border: 0; border-top: 1px solid rgba(0,0,0,0.05); } blockquote { border-left: 3px solid #8b5cf6; padding-left: 1em; color: #71717a; font-style: italic; } code { background-color: #f4f4f5; padding: 0.2em 0.4em; border-radius: 4px; color: #7c3aed; } )";
+        else if (themeName == "Solarized Light") css = R"( body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", sans-serif; font-size: 16px; color: #073642; line-height: 1.8; } h1, h2, h3 { color: #002b36; margin-top: 1.2em; font-weight: 800; } h1 { padding-bottom: 0.2em; border-bottom: 1px solid rgba(0,0,0,0.05); } a { color: #b58900; text-decoration: none; } hr { border: 0; border-top: 1px solid rgba(0,0,0,0.05); } blockquote { border-left: 3px solid #b58900; padding-left: 1em; color: #586e75; font-style: italic; } code { background-color: #eee8d5; padding: 0.2em 0.4em; border-radius: 4px; color: #cb4b16; } )";
 
         for (auto& tab : *activeTabs) {
             if (tab.editor && tab.preview) {
@@ -850,6 +973,15 @@ int main(int argc, char *argv[]) {
             }
         }
         QSettings s("Orbit", "EnterpriseEdition"); s.setValue("theme", themeName);
+    };
+
+    auto onSpellcheckChange = [&](bool enabled) {
+        *isSpellcheckEnabled = enabled;
+        for (auto& tab : *activeTabs) {
+            if (tab.editor && tab.editor->highlighter) {
+                tab.editor->highlighter->rehighlight();
+            }
+        }
     };
 
     auto openNoteInTab = [&](const std::string& fullPath, const QString& tabName) {
@@ -866,15 +998,30 @@ int main(int argc, char *argv[]) {
         textSplitter->setProperty("file_path", QString::fromStdString(fullPath)); 
 
         auto *textEdit = new MarkdownEditor();
-        textEdit->vaultPath = vaultPath; 
+        textEdit->vaultPath = vaultPath;
+        textEdit->highlighter->hunspell = globalHunspell;
+        textEdit->highlighter->spellcheckEnabled = isSpellcheckEnabled;
         textEdit->setPlainText(text);
 
         auto *markdownPreview = new QTextBrowser();
         markdownPreview->setOpenExternalLinks(true); 
         markdownPreview->document()->setBaseUrl(QUrl::fromLocalFile(QDir(QString::fromStdString(vaultPath)).absolutePath() + "/"));
         
-        textSplitter->addWidget(textEdit);
-        textSplitter->addWidget(markdownPreview);
+        // Wrap în containere pentru a obține spațierea efectului Liquid Glass
+        auto *editorContainer = new QWidget();
+        editorContainer->setStyleSheet("background: transparent;");
+        auto *eLayout = new QVBoxLayout(editorContainer);
+        eLayout->setContentsMargins(20, 20, 10, 20); 
+        eLayout->addWidget(textEdit);
+
+        auto *previewContainer = new QWidget();
+        previewContainer->setStyleSheet("background: transparent;");
+        auto *pLayout = new QVBoxLayout(previewContainer);
+        pLayout->setContentsMargins(10, 20, 20, 20);
+        pLayout->addWidget(markdownPreview);
+
+        textSplitter->addWidget(editorContainer);
+        textSplitter->addWidget(previewContainer);
         textSplitter->setSizes(QList<int>() << 500 << 500); 
 
         activeTabs->push_back({textEdit, markdownPreview});
@@ -906,7 +1053,7 @@ int main(int argc, char *argv[]) {
                 
                 auto *splitter = qobject_cast<QSplitter*>(tabContent->currentWidget());
                 if (splitter && splitter->count() > 0) {
-                    updateStats(static_cast<MarkdownEditor*>(splitter->widget(0)));
+                    updateStats(textEdit);
                 }
             }
         });
@@ -951,9 +1098,21 @@ int main(int argc, char *argv[]) {
         }
         for (const auto& pair : *globalGraph) {
             std::string nName = std::filesystem::path(pair.first).filename().string();
-            if (nodesMap.find(nName) == nodesMap.end()) { Node* n = new Node(QString::fromStdString(nName), FILE_NODE); nodesMap[nName] = n; graphScene->addItem(n); activeNodes->push_back(n); n->setPos(rand() % 500 - 250, rand() % 500 - 250); }
+            if (nodesMap.find(nName) == nodesMap.end()) { 
+                Node* n = new Node(QString::fromStdString(nName), FILE_NODE); 
+                n->onDoubleClick = [=](QString name) {
+                    openNoteInTab(vaultPath + "/" + name.toStdString(), name);
+                };
+                nodesMap[nName] = n; graphScene->addItem(n); activeNodes->push_back(n); n->setPos(rand() % 500 - 250, rand() % 500 - 250); 
+            }
             for(const auto& link : pair.second) {
-                if (nodesMap.find(link) == nodesMap.end()) { Node* n = new Node(QString::fromStdString(link), FILE_NODE); nodesMap[link] = n; graphScene->addItem(n); activeNodes->push_back(n); n->setPos(rand() % 500 - 250, rand() % 500 - 250); }
+                if (nodesMap.find(link) == nodesMap.end()) { 
+                    Node* n = new Node(QString::fromStdString(link), FILE_NODE); 
+                    n->onDoubleClick = [=](QString name) {
+                        openNoteInTab(vaultPath + "/" + name.toStdString(), name);
+                    };
+                    nodesMap[link] = n; graphScene->addItem(n); activeNodes->push_back(n); n->setPos(rand() % 500 - 250, rand() % 500 - 250); 
+                }
             }
         }
         for (const auto& pair : *globalGraph) {
@@ -1027,12 +1186,10 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    // --- DE DECLARAT ACUM, SĂ FIE DISPONIBIL ---
     auto *actionNew = new QAction("New Note", &window); 
     actionNew->setShortcut(QKeySequence("Ctrl+N")); 
     window.addAction(actionNew);
 
-    // --- CONTEXT MENU SI SHORTCUTS (DELETE & RENAME) ---
     treeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(treeWidget, &QTreeWidget::customContextMenuRequested, [&](const QPoint &pos) {
         QTreeWidgetItem *item = treeWidget->itemAt(pos);
@@ -1114,12 +1271,13 @@ int main(int argc, char *argv[]) {
     QObject::connect(topTabs, &QTabBar::currentChanged, [&](int index) {
         if (index == -1) { updateStats(nullptr); return; }
         QWidget* currentWidget = tabContent->widget(index);
-        if (qobject_cast<QGraphicsView*>(currentWidget)) {
+        if (dynamic_cast<GraphView*>(currentWidget)) {
             updateStats(nullptr); 
             return;
         }
         for (auto& tab : *activeTabs) {
-            if (tab.editor && tab.editor->parentWidget() == currentWidget) {
+            // tab.editor este acum în interiorul unui container
+            if (tab.editor && tab.editor->parentWidget()->parentWidget() == currentWidget) {
                 updateStats(tab.editor);
                 break;
             }
@@ -1131,22 +1289,18 @@ int main(int argc, char *argv[]) {
     
     QObject::connect(rBtnGraph, &QPushButton::clicked, [&](){ 
         for (int i = 0; i < tabContent->count(); ++i) {
-            if (qobject_cast<QGraphicsView*>(tabContent->widget(i))) {
+            if (dynamic_cast<GraphView*>(tabContent->widget(i))) {
                 topTabs->setCurrentIndex(i); 
                 return;
             }
         }
-        auto *newGraphView = new QGraphicsView(graphScene);
-        newGraphView->setRenderHint(QPainter::Antialiasing); 
-        newGraphView->setDragMode(QGraphicsView::ScrollHandDrag); 
-        newGraphView->setStyleSheet("background: transparent; border: none;");
-        
+        auto *newGraphView = new GraphView(graphScene);
         int newIndex = tabContent->addWidget(newGraphView);
         topTabs->addTab("Graph view");
         topTabs->setCurrentIndex(newIndex);
     });
     
-    QObject::connect(rBtnSettings, &QPushButton::clicked, [&](){ SettingsDialog d(&window, applyThemeGlobal); d.exec(); });
+    QObject::connect(rBtnSettings, &QPushButton::clicked, [&](){ SettingsDialog d(&window, applyThemeGlobal, onSpellcheckChange); d.exec(); });
     QObject::connect(btnNewNote, &QPushButton::clicked, createNewNote);
     QObject::connect(actionNew, &QAction::triggered, createNewNote);
 
@@ -1177,14 +1331,12 @@ int main(int argc, char *argv[]) {
         reloadSystem(false); openNoteInTab(welcomeFullPath, "Welcome.md");
     }
 
-    auto *initialGraphView = new QGraphicsView(graphScene);
-    initialGraphView->setRenderHint(QPainter::Antialiasing); initialGraphView->setDragMode(QGraphicsView::ScrollHandDrag); 
-    initialGraphView->setStyleSheet("background: transparent; border: none;");
+    auto *initialGraphView = new GraphView(graphScene);
     tabContent->insertWidget(0, initialGraphView);
     topTabs->insertTab(0, "Graph view");
     if (!hasNotes) topTabs->setCurrentIndex(0);
 
-    palette->addCommand("Settings: Open Settings", [&]() { SettingsDialog d(&window, applyThemeGlobal); d.exec(); });
+    palette->addCommand("Settings: Open Settings", [&]() { SettingsDialog d(&window, applyThemeGlobal, onSpellcheckChange); d.exec(); });
     palette->addCommand("File: New Note", [&]() { actionNew->trigger(); });
     auto *actionPalette = new QAction("Command Palette", &window); actionPalette->setShortcut(QKeySequence("Ctrl+P")); window.addAction(actionPalette);
     QObject::connect(actionPalette, &QAction::triggered, [palette, &window]() {
